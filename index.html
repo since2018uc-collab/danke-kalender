@@ -927,7 +927,7 @@ window.__renderDeletedBookings=function(q=''){
     };
   });
 };
- function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)box.innerHTML=window.__renderDeletedBookings(q);}
+ function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)window.__renderDeletedBookings(q);}
  function restoreDeletedBooking(id){
   if(db.user?.role!=='admin')return;
   const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return alert('Silinen termin bulunamadı.');
