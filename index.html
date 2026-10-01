@@ -822,7 +822,7 @@ function adminAddAtTime(t,col){
   const defaultCampaign=options[col]?.[0]||options[0]?.[0]||'';
   document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="modal"><div class="modal"><h3>Rota Ekle</h3><p style="color:#68758b">Tarih: <b>${fmt(viewDate)}</b><br>Saat: <b>${esc(t)}</b><br><b>Tıkladığın kutu:</b> ${esc(defaultCampaign)}<br><span style="font-size:12px">İstediğin kampanyayı seçebilirsin; seçtiğin kampanya tıkladığın kutuda kalır.</span></p><label>Kampanya</label><select id="rc">${options.map((c,i)=>`<option value="${esc(c[0])}" ${i===col?'selected':''}>${c[0]}</option>`).join('')}</select><div class="actions"><button class="action gray" onclick="closeModal()">İptal</button><button class="action blue" onclick="createRouteAtTime('${t}',${col})">Rotayı Aç</button></div></div></div>`);
 }
-function openDeletedBookings(){
+window.openDeletedBookings=function(){
   if(db.user?.role!=='admin') return;
 
   let modal=document.getElementById('deletedBookingsModal');
