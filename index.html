@@ -1845,7 +1845,7 @@ async function bootOnlineAuth(){
     startOnlineRealtime();
     render();
     if(db.user.role!=='admin'){
-      setTimeout(updateAgentOwnReport,0);
+      setTimeout(updateAgentOwnReport,1000);
      setTimeout(()=>showUnreadAnnouncements(true),700);
       setInterval(()=>{ if(db.user && db.user.role!=='admin') showUnreadAnnouncements(false); },5000);
     }
