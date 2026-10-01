@@ -1,0 +1,1549 @@
+
+const DK_SUPABASE_URL = "https://cbznvkijchjptsthumyb.supabase.co";
+const DK_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG";
+const dkSupabase = window.supabase.createClient(DK_SUPABASE_URL, DK_SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'danke-kalender-auth' } });
+window.dkSupabase = dkSupabase;
+let dkAuthSession = null;
+
+
+const campaigns=[
+ ['TURUNCU','#ffd9b5','turuncu'],['MAVİ','#b9dcff','mavi'],['SARI','#fff19b','sari'],
+ ['LACİVERT','#bfcdf1','lacivert'],['MOR','#ddc6f5','mor'],['EFLATUN','#ead7f7','eflatun'],
+ ['PEMBE','#ffd0e7','pembe'],['TURKUAZ','#bceeea','turkuaz'],['BORDO','#e7bdc5','bordo']
+];
+const defaultTimes=['08:00-09:00','10:00-11:00','12:00-13:00','14:00-15:00','16:00-17:00','18:00-19:00','20:00-21:00'];
+let db=JSON.parse(localStorage.getItem('dk_v2')||'null')||{
+ user:null,
+ employees:[
+  {u:'admin',p:'admin123',name:'Cem Tahtacı',role:'admin'},
+  {u:'ahmet',p:'1234',name:'Ahmet',role:'employee'},
+  {u:'mehmet',p:'1234',name:'Mehmet',role:'employee'}
+ ],
+ slots:[],
+ bookings:[],
+ announcements:[]
+};
+db.messages=Array.isArray(db.messages)?db.messages:[];
+if(!Array.isArray(db.deletedBookings))db.deletedBookings=[];
+const WEEK_DAYS=[['1','Pazartesi'],['2','Salı'],['3','Çarşamba'],['4','Perşembe'],['5','Cuma'],['6','Cumartesi'],['0','Pazar']];
+function defaultWorkSchedule(){let x={};WEEK_DAYS.forEach(([k])=>x[k]={enabled:['1','2','3','4','5'].includes(k),start:'08:00',end:'18:00',breaks:[{start:'10:00',end:'10:15',label:'Mola 1'},{start:'12:00',end:'13:00',label:'Öğle Molası'},{start:'15:00',end:'15:15',label:'Mola 2'}]});return x}
+if(!db.workSchedule||typeof db.workSchedule!=='object')db.workSchedule=defaultWorkSchedule();
+if(!db.breakNoticeSeen||typeof db.breakNoticeSeen!=='object')db.breakNoticeSeen={};
+
+/* V73: notification sound engine.
+   Browsers require a user gesture before audio can play; the first click/keypress
+   unlocks the tiny notification sound. New unread items are then detected by
+   polling + storage events. */
+let dkAudioCtx=null, dkAudioUnlocked=false, dkNotificationPollTimer=null;
+let dkSeenNotificationIds=new Set();
+let dkPersistentAlertToken=null;
+let dkPersistentAlertSource=null;
+
+function unlockNotificationAudio(){
+  try{
+    if(!dkAudioCtx)dkAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const r=dkAudioCtx.resume();
+    if(r&&typeof r.catch==='function')r.catch(()=>{});
+    dkAudioUnlocked=true;
+  }catch(e){}
+}
+window.addEventListener('pointerdown',unlockNotificationAudio,{passive:true});
+window.addEventListener('keydown',unlockNotificationAudio);
+
+function createPersistentAlertBuffer(kind='message'){
+  if(!dkAudioCtx)return null;
+  const rate=dkAudioCtx.sampleRate||44100;
+  const duration=5.0;
+  const buffer=dkAudioCtx.createBuffer(1,Math.floor(rate*duration),rate);
+  const data=buffer.getChannelData(0);
+  const f1=kind==='announcement'?660:kind==='break'?740:880;
+  const f2=kind==='announcement'?880:kind==='break'?988:1046;
+  const addTone=(start,dur,freq,amp)=>{
+    const from=Math.floor(start*rate), to=Math.min(data.length,Math.floor((start+dur)*rate));
+    for(let i=from;i<to;i++){
+      const t=(i-from)/rate;
+      const attack=Math.min(1,t/0.015);
+      const remain=(to-i)/Math.max(1,(to-from));
+      const release=Math.min(1,remain*10);
+      data[i]+=Math.sin(2*Math.PI*freq*t)*amp*attack*release;
+    }
+  };
+  addTone(0.02,0.24,f1,0.16);
+  addTone(0.31,0.24,f2,0.14);
+  return buffer;
+}
+
+async function startPersistentAlertSound(kind='message',token='alert'){
+  const wanted=String(token);
+  stopPersistentAlertSound();
+  dkPersistentAlertToken=wanted;
+  try{
+    unlockNotificationAudio();
+    if(!dkAudioCtx)return;
+    if(dkAudioCtx.state==='suspended')await dkAudioCtx.resume();
+    if(dkPersistentAlertToken!==wanted)return;
+    const source=dkAudioCtx.createBufferSource();
+    source.buffer=createPersistentAlertBuffer(kind);
+    source.loop=true;
+    const gain=dkAudioCtx.createGain();
+    gain.gain.value=0.85;
+    source.connect(gain);
+    gain.connect(dkAudioCtx.destination);
+    dkPersistentAlertSource=source;
+    source.onended=()=>{if(dkPersistentAlertSource===source)dkPersistentAlertSource=null;};
+    source.start();
+  }catch(e){}
+}
+function stopPersistentAlertSound(token=''){
+  if(token && dkPersistentAlertToken && String(token)!==String(dkPersistentAlertToken))return;
+  dkPersistentAlertToken=null;
+  if(dkPersistentAlertSource){try{dkPersistentAlertSource.stop();}catch(e){};dkPersistentAlertSource=null;}
+}
+
+function playNotificationSound(kind='message'){
+  if(!dkAudioUnlocked)return;
+  try{
+    if(!dkAudioCtx)unlockNotificationAudio();
+    if(!dkAudioCtx)return;
+    if(dkAudioCtx.state==='suspended')dkAudioCtx.resume();
+    const t=dkAudioCtx.currentTime;
+    const gain=dkAudioCtx.createGain();
+    gain.connect(dkAudioCtx.destination);
+    gain.gain.setValueAtTime(0.0001,t);
+    gain.gain.exponentialRampToValueAtTime(kind==='break'?0.08:0.06,t+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001,t+0.28);
+    const osc=dkAudioCtx.createOscillator();
+    osc.type='sine';
+    osc.frequency.setValueAtTime(kind==='announcement'?660:kind==='break'?740:880,t);
+    osc.connect(gain);
+    osc.start(t);
+    osc.stop(t+0.29);
+
+    const gain2=dkAudioCtx.createGain();
+    gain2.connect(dkAudioCtx.destination);
+    gain2.gain.setValueAtTime(0.0001,t+0.30);
+    gain2.gain.exponentialRampToValueAtTime(kind==='break'?0.065:0.045,t+0.31);
+    gain2.gain.exponentialRampToValueAtTime(0.0001,t+0.54);
+    const osc2=dkAudioCtx.createOscillator();
+    osc2.type='sine';
+    osc2.frequency.setValueAtTime(kind==='announcement'?880:kind==='break'?988:1046,t+0.30);
+    osc2.connect(gain2);
+    osc2.start(t+0.30);
+    osc2.stop(t+0.55);
+  }catch(e){}
+}
+
+function getCurrentUnreadNotificationIds(){
+  if(!db.user)return [];
+  const ids=[];
+  db.messages=Array.isArray(db.messages)?db.messages:[];
+  db.announcements=Array.isArray(db.announcements)?db.announcements:[];
+  const me=db.user.u;
+  db.messages.filter(m=>m.to===me&&!m.read).forEach(m=>ids.push('msg:'+m.id));
+  db.announcements.filter(a=>String(a.byAuthId||'')!==String(db.user.authId||'') && !(a.reads||[]).includes(me)).forEach(a=>ids.push('ann:'+a.id));
+  const e=(db.employees||[]).find(x=>x.u===me);
+  (e?.payroll?.notifications||[]).filter(n=>!n.read).forEach(n=>ids.push('priv:'+n.id));
+  return ids;
+}
+
+function primeNotificationSoundState(){
+  dkSeenNotificationIds=new Set(getCurrentUnreadNotificationIds());
+}
+
+async function checkForNewNotifications(){
+  if(!db.user)return;
+  if(dkCommunicationReady){try{await syncOnlineCommunication({renderAfter:false});}catch(e){}}
+
+  // Online mode is authoritative. Do not replace fresh Supabase data with stale localStorage.
+  if(dkAuthSession || dkCommunicationReady){
+    try{ await showUnreadAnnouncements(false); }catch(e){}
+  }
+
+  // Re-read the latest shared localStorage state only for non-online legacy notifications.
+  try{
+    const latest=JSON.parse(localStorage.getItem('dk_v2')||'null');
+    if(!(dkAuthSession || dkCommunicationReady) && latest && typeof latest==='object'){
+      const hadUser=db.user.u;
+      db=latest;
+      db.user=(db.employees||[]).find(e=>e.u===hadUser)||db.user;
+      db.messages=Array.isArray(db.messages)?db.messages:[];
+      db.announcements=Array.isArray(db.announcements)?db.announcements:[];
+      if(!db.auditLogs)db.auditLogs=[];
+      if(!db.deletedBookings)db.deletedBookings=[];
+      if(!db.workSchedule)db.workSchedule=defaultWorkSchedule();
+    }
+  }catch(e){}
+  const ids=getCurrentUnreadNotificationIds();
+  const current=new Set(ids);
+  const added=ids.filter(id=>!dkSeenNotificationIds.has(id));
+  if(added.length){
+    if(added.some(x=>x.startsWith('msg:')))playNotificationSound('message');
+    else if(added.some(x=>x.startsWith('ann:')))playNotificationSound('announcement');
+    else playNotificationSound('private');
+    // Refresh the UI so the modal is raised without waiting for another action.
+    render();
+  }
+  dkSeenNotificationIds=current;
+}
+
+window.addEventListener('storage',function(ev){
+  if(ev.key==='dk_v2' && db.user){
+    setTimeout(checkForNewNotifications,50);
+  }
+});
+
+function startNotificationMonitor(){
+  if(dkNotificationPollTimer)clearInterval(dkNotificationPollTimer);
+  dkNotificationPollTimer=setInterval(checkForNewNotifications,2500);
+}
+primeNotificationSoundState();
+startNotificationMonitor();
+setInterval(()=>{if(cleanupRetention()){localStorage.setItem('dk_v2',JSON.stringify(db));}},60*60*1000);
+
+function cleanupRetention(){
+  const now=Date.now();
+  const AUDIT_RETENTION_MS=30*24*60*60*1000;
+  const ANNOUNCEMENT_RETENTION_MS=7*24*60*60*1000;
+  let changed=false;
+  db.auditLogs=Array.isArray(db.auditLogs)?db.auditLogs:[];
+  const auditBefore=db.auditLogs.length;
+  db.auditLogs=db.auditLogs.filter(x=>{
+    const t=Date.parse(x?.createdAt||'');
+    return !Number.isFinite(t) || (now-t)<=AUDIT_RETENTION_MS;
+  });
+  if(db.auditLogs.length!==auditBefore)changed=true;
+
+  db.announcements=Array.isArray(db.announcements)?db.announcements:[];
+  const annBefore=db.announcements.length;
+  db.announcements=db.announcements.filter(x=>{
+    const t=Date.parse(x?.createdAt||'');
+    return !Number.isFinite(t) || (now-t)<=ANNOUNCEMENT_RETENTION_MS;
+  });
+  if(db.announcements.length!==annBefore)changed=true;
+  return changed;
+}
+
+function save(){
+  db.messages=Array.isArray(db.messages)?db.messages:[];
+  db.auditLogs=Array.isArray(db.auditLogs)?db.auditLogs:[];
+  db.deletedBookings=Array.isArray(db.deletedBookings)?db.deletedBookings:[];
+  cleanupRetention();
+  localStorage.setItem('dk_v2',JSON.stringify(db));
+}
+if(!Array.isArray(db.auditLogs))db.auditLogs=[];
+cleanupRetention();
+
+const AUDIT_FIELDS={kundeName:'Kunde Name',vorname:'Vorname',alter:'Alter',strasse:'Straße',plz:'PLZ',ort:'Ort',festnetz:'Festnetz',mobil:'Mobil',entscheidungstraeger:'Entscheidungsträger',gesprochenMit:'Gesprochen mit',baujahr:'Baujahr',teilnehmer:'Teilnehmer',heizart:'Heizart',heizBaujahr:'Heizungs-Baujahr',freiReihenhaus:'Frei / Reihenhaus',verbrauch:'Verbrauch',vorlauftemperatur:'Vorlauftemperatur',rohrsystem:'Rohrsystem',beheizteWohnflaeche:'Beheizte Wohnfläche'};
+function audit(action,targetType,targetId,targetName,details){db.auditLogs=Array.isArray(db.auditLogs)?db.auditLogs:[];db.auditLogs.push({id:crypto.randomUUID(),createdAt:new Date().toISOString(),actorU:db.user?.u||'system',actorName:db.user?.name||'System',actorRole:db.user?.role||'',action,targetType,targetId:targetId||'',targetName:targetName||'',details:String(details||'')});}
+function bookingChangedFields(before,after){return Object.keys(AUDIT_FIELDS).filter(k=>String(before?.[k]??'')!==String(after?.[k]??'')).map(k=>AUDIT_FIELDS[k]);}
+function auditActionLabel(a){return ({'booking.created':'Termin oluşturuldu','booking.updated':'Termin bilgisi güncellendi','booking.status':'Termin durumu değiştirildi','booking.deleted':'Termin silindi','booking.restored':'Termin geri yüklendi','booking.deletedPermanent':'Termin kalıcı silindi','booking.moved':'Termin taşındı','route.created':'Rota oluşturuldu','route.deleted':'Rota silindi','user.created':'Kullanıcı oluşturuldu','user.updated':'Kullanıcı güncellendi','user.password':'Şifre değiştirildi','user.deleted':'Kullanıcı silindi','schedule.updated':'Mesai çizelgesi güncellendi','announcement.created':'Duyuru gönderildi','message.sent':'Mesaj gönderildi'})[a]||a;}
+function auditTargetLabel(t){return ({booking:'Termin',route:'Rota',user:'Kullanıcı',schedule:'Mesai',announcement:'Duyuru',message:'Mesaj'})[t]||'Kayıt';}
+function openBookingHistory(id){if(!db.user)return;const b=db.bookings.find(x=>x.id===id);if(!b)return;if(db.user.role!=='admin'&&b.employee!==db.user.u)return alert('Bu termin geçmişini sadece termin sahibi ve admin görebilir.');const list=(db.auditLogs||[]).filter(x=>x.targetType==='booking'&&x.targetId===id).slice().reverse();const name=b?.customerName||b?.kundeName||'Termin';const items=list.map(x=>`<div class="auditItem"><div class="auditItemTop"><b>${esc(auditActionLabel(x.action))}</b><span>${esc(x.actorName||x.actorU)} · ${esc(x.actorRole==='admin'?'Admin':'Agent')} · ${new Date(x.createdAt).toLocaleString('tr-TR')}</span></div><div class="auditDetail">${esc(x.details||'')}</div></div>`).join('')||'<div class="auditEmpty">Bu termin için henüz işlem geçmişi yok.</div>';document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="auditDetailModal"><div class="modal" style="max-width:760px"><div class="modalTitleRow"><div><div class="modalKicker">İŞLEM GEÇMİŞİ</div><h3>${esc(name)}</h3><div style="color:#748096;font-size:12px">Bu termin üzerinde yapılan işlemler.</div></div></div><div class="auditList">${items}</div><div class="actions"><button class="action gray" onclick="document.getElementById('auditDetailModal')?.remove()">Kapat</button></div></div></div>`)}
+function manageAuditLogs(){if(!db.user||db.user.role!=='admin')return;const logs=(db.auditLogs||[]).slice().reverse();document.getElementById('auditModal')?.remove();document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="auditModal"><div class="modal" style="max-width:1000px"><div class="modalTitleRow"><div><div class="modalKicker">DENETİM KAYDI</div><h3>Değişiklik Geçmişi</h3><div style="color:#748096;font-size:12px">Kim, ne zaman, hangi işlemde ne yaptığını burada görebilirsin. <span class="pillNote">Son 30 gün</span></div></div><span class="statusPill approved">${logs.length} İŞLEM</span></div><div class="auditFilters"><input id="auditSearch" type="search" placeholder="Personel, işlem, müşteri veya açıklama ara..." oninput="renderAuditLogs()"><input id="auditFrom" type="date" onchange="renderAuditLogs()"><input id="auditTo" type="date" onchange="renderAuditLogs()"><select id="auditType" onchange="renderAuditLogs()"><option value="">Tüm işlemler</option><option value="booking">Termin</option><option value="route">Rota</option><option value="user">Kullanıcı</option><option value="schedule">Mesai</option><option value="announcement">Duyuru</option><option value="message">Mesaj</option></select></div><div id="auditResults" class="auditTableWrap"></div><div class="actions"><button class="action gray" onclick="document.getElementById('auditModal')?.remove()">Kapat</button></div></div></div>`);window.__auditAll=logs;renderAuditLogs()}
+function renderAuditLogs(){const wrap=document.getElementById('auditResults');if(!wrap)return;const q=(document.getElementById('auditSearch')?.value||'').trim().toLocaleLowerCase('tr-TR');const from=document.getElementById('auditFrom')?.value||'';const to=document.getElementById('auditTo')?.value||'';const type=document.getElementById('auditType')?.value||'';const list=(window.__auditAll||[]).filter(l=>{const d=String(l.createdAt||'').slice(0,10);if(from&&d<from)return false;if(to&&d>to)return false;if(type&&l.targetType!==type)return false;const hay=[l.actorName,l.actorU,l.targetName,l.details,auditActionLabel(l.action),auditTargetLabel(l.targetType)].join(' ').toLocaleLowerCase('tr-TR');return !q||hay.includes(q)});const rows=list.slice(0,500).map(l=>`<div class="auditRow"><div class="auditWhen">${new Date(l.createdAt).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div><div><b>${esc(l.actorName||l.actorU)}</b><span class="auditRole">${esc(l.actorRole==='admin'?'Admin':'Agent')}</span></div><div><b>${esc(auditActionLabel(l.action))}</b><span class="auditRole">${esc(auditTargetLabel(l.targetType))}${l.targetName?' · '+esc(l.targetName):''}</span></div><div class="auditDetail">${esc(l.details||'')}</div></div>`).join('')||'<div class="auditEmpty">Bu filtrelere uygun işlem geçmişi bulunamadı.</div>';wrap.innerHTML=`<div class="auditTableHead"><span>TARİH</span><span>KİM</span><span>İŞLEM</span><span>DETAY</span></div>${rows}`;}
+
+function tomorrow(){let d=new Date();d.setDate(d.getDate()+1);return d.toISOString().slice(0,10)}
+function fmt(d){return new Date(d+'T12:00:00').toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric',weekday:'long'})}
+let viewDate=tomorrow();
+function selectDate(v){if(!v)return;viewDate=v;render()}
+function isTomorrow(){return viewDate===tomorrow()}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function campObj(n){return campaigns.find(c=>c[0]===n)||campaigns[0]}
+function login(){document.getElementById('app').innerHTML=`<div class="login"><div class="loginBox"><div class="loginLogo">DANKE KALENDER</div><h1>Giriş Yap</h1><p>Rota ve termin planına güvenli giriş yapmak için kullanıcı bilgilerinizle giriş yapın.</p><label>Kullanıcı adı</label><input id="lu" autocomplete="username"><label>Şifre</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"><button id="loginBtn" class="action blue" onclick="doLogin()">Giriş Yap</button><div id="loginStatus" style="margin-top:10px;font-size:12px;color:#6b778b;text-align:center"></div></div></div>`}
+async function doLogin(){
+  const u=(document.getElementById('lu')?.value||'').trim();
+  const p=document.getElementById('lp')?.value||'';
+  const btn=document.getElementById('loginBtn');
+  const st=document.getElementById('loginStatus');
+  if(!u||!p){ if(st)st.textContent='Kullanıcı adı ve şifre gerekli.'; return; }
+  if(btn){btn.disabled=true;btn.textContent='Giriş yapılıyor…';}
+  try{
+    const {data:emailData,error:emailErr}=await dkSupabase.rpc('get_login_email',{p_username:u});
+    if(emailErr)throw emailErr;
+    const email=emailData;
+    if(!email)throw new Error('Kullanıcı adı veya şifre hatalı.');
+    const {data:authData,error:authErr}=await dkSupabase.auth.signInWithPassword({email,password:p});
+    if(authErr)throw authErr;
+    dkAuthSession=authData.session||null;
+    const authUser=authData.user;
+    const {data:profileData,error:profileErr}=await dkSupabase.rpc('get_my_profile');
+    if(profileErr)throw profileErr;
+    const profile=Array.isArray(profileData)?profileData[0]:profileData;
+    if(!profile)throw new Error('Profil bulunamadı.');
+    if(profile.is_active!==true)throw new Error('Bu hesap pasif durumda.');
+    const local=(db.employees||[]).find(e=>e.u===profile.username)||{};
+    db.user={...local,u:profile.username,name:profile.full_name,role:profile.role,authId:profile.id,email:profile.email||email};
+    if(!Array.isArray(db.employees))db.employees=[];
+    const idx=db.employees.findIndex(e=>e.u===profile.username);
+    const merged={...local,u:profile.username,name:profile.full_name,role:profile.role};
+    if(idx>=0)db.employees[idx]={...db.employees[idx],...merged}; else db.employees.push(merged);
+    save();
+    await syncOnlineProfiles();
+    if(st)st.textContent='Online bağlantı başarılı.';
+    render();
+  }catch(e){
+    console.error(e);
+    if(st)st.textContent=e?.message||'Giriş yapılamadı.';
+    try{await dkSupabase.auth.signOut();}catch(_){}
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Giriş Yap';}
+  }
+}
+async function logout(){try{await dkSupabase.auth.signOut();}catch(e){}dkAuthSession=null;db.user=null;save();login()}
+window.doLogin=doLogin;window.logout=logout;
+function ensureSlots(){/* Rotaları artık sadece Admin açar. */}
+function booking(slot){return db.bookings.find(b=>b.slotId===slot.id)}
+function statusText(s){return s==='approved'?'ONAYLANDI':s==='rejected'?'REDDEDİLDİ':s==='unreachable'?'ULAŞILAMADI':'KONTROL BEKLİYOR'}
+function card(slot){let c=campObj(slot.campaign),b=booking(slot),status=b?.status;let person=b?esc(b.employeeName):'<span class="emptyLabel">Termin ekle</span>';let drag=(b&&canDragBooking(b))?` draggable="true" ondragstart="dragStart(event,'${b.id}')" ondragend="dragEnd()"`:``;let click=b?`openBooking('${b.id}')`:`newBooking('${slot.id}')`;return `<div class="card ${c[2]} ${b?'filled draggable-card':'emptyCard'}" ${drag} onclick="event.stopPropagation();${click}">${status?`<span class="statusBadge ${status}">${statusText(status)}</span>`:''}<div class="campaign">${c[0]}</div><div class="divider"></div><div class="person">${person}</div></div>`}
+function header(){let initials=esc((db.user.name||'DK').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase());return `<header><div class="logo" aria-label="Danke Kalender"><svg class="brandLogo" viewBox="0 0 258 64" role="img" aria-label="Danke Kalender"><defs><linearGradient id="dkGold" x1="0" x2="1"><stop offset="0" stop-color="#f0b72e"/><stop offset="1" stop-color="#ffd75a"/></linearGradient><linearGradient id="dkBlue" x1="0" x2="1"><stop offset="0" stop-color="#0a3a73"/><stop offset="1" stop-color="#195b9f"/></linearGradient></defs><g transform="translate(3 4)"><rect x="0" y="2" width="52" height="50" rx="11" fill="#f3f6fa" stroke="#ffd34f" stroke-width="2"/><rect x="0" y="2" width="52" height="15" rx="11" fill="url(#dkBlue)"/><rect x="0" y="10" width="52" height="7" fill="url(#dkBlue)"/><circle cx="13" cy="9.5" r="2.2" fill="#ffd34f"/><circle cx="39" cy="9.5" r="2.2" fill="#ffd34f"/><rect x="9" y="24" width="8" height="8" rx="2" fill="#f7c84b"/><rect x="22" y="24" width="8" height="8" rx="2" fill="#8bb8ee"/><rect x="35" y="24" width="8" height="8" rx="2" fill="#e9a7c3"/><rect x="9" y="36" width="8" height="8" rx="2" fill="#9ad9d6"/><rect x="22" y="36" width="8" height="8" rx="2" fill="#c7b1ee"/><rect x="35" y="36" width="8" height="8" rx="2" fill="#f0c77c"/><circle cx="46" cy="47" r="9" fill="#ffd34f" stroke="#ffffff" stroke-width="2"/><path d="M46 42v5l3 2" stroke="#0a3a73" stroke-width="2" stroke-linecap="round" fill="none"/></g><text x="66" y="29" font-family="Arial,Helvetica,sans-serif" font-size="28" font-weight="900" letter-spacing=".3" fill="#ffd34f">Danke</text><text x="66" y="49" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="2" fill="#ffffff">KALENDER</text><rect x="170" y="19" width="3" height="31" rx="1.5" fill="#ffd34f" opacity=".9"/></svg></div><div class="dateNav" aria-label="Tarih navigasyonu"><button onclick="shiftDay(-1)" aria-label="Önceki gün">‹</button><div class="dateText">${fmt(viewDate)}<small>${isTomorrow()?'Yarın':'Seçilen tarih'}</small><input class="datePicker" aria-label="Tarih seç" type="date" value="${viewDate}" onchange="selectDate(this.value)"></div><button onclick="shiftDay(1)" aria-label="Sonraki gün">›</button></div><div class="account" aria-label="Kullanıcı hesabı"><div class="accountAvatar">${initials}</div><div class="accountInfo"><div class="accountNameRow"><b>${esc(db.user.name)}</b><span class="accountRole">${db.user.role==='admin'?'Admin':'Agent'}</span></div><span><a href="#" onclick="openMyPayroll();return false">Maaşım</a><i class="accountSep">•</i><a class="${unreadMessageCount()?'messageAlert':''}" href="#" onclick="openMessages();return false">Mesajlar</a>${db.user.role==='admin'?`<i class="accountSep">•</i><a href="#" onclick="changeOwnPassword();return false">Şifre</a>`:''}<i class="accountSep">•</i><a href="#" onclick="logout();return false">Çıkış</a></span></div></div></header>`}
+let breakNoticeTimer=null;
+function render(){if(!db.user)return login();ensureSlots();ensurePayrollData();db.user.role==='admin'?admin():employee();if(db.user.role==='admin'){setTimeout(updateAdminAgentReport,0);setTimeout(()=>{const b=document.getElementById('deletedCountBadge');if(b&&Array.isArray(db.deletedBookings)&&db.deletedBookings.length)b.textContent=` (${db.deletedBookings.length})`;},0);}setTimeout(()=>showUnreadAnnouncements(),250);setTimeout(showUnreadPrivateNotifications,80);setTimeout(showUnreadInternalMessageNotice,140);setTimeout(checkBreakNotification,250);if(!breakNoticeTimer)breakNoticeTimer=setInterval(checkBreakNotification,15000)}
+
+function employee(){let d=viewDate,slots=db.slots.filter(s=>s.date===d);document.getElementById('app').innerHTML=header()+`<div class="wrap">${agentOwnMonthlyReport()}${grid(slots)}${rejectedBookings()}</div>`}
+function normalizeReportDate(v){
+  if(!v)return '';
+  const s=String(v).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  const m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+  return m?`${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`:s;
+}
+function ownBookingDate(b){
+  const slot=(b?.slotId&&db.slots.find(s=>s.id===b.slotId))||(b?.rejectedSlotId&&db.slots.find(s=>s.id===b.rejectedSlotId));
+  return normalizeReportDate(b?.routeDate||b?.date||b?.appointmentDate||b?.rejectedDate||slot?.date||'');
+}
+function normalizeAgentKey(v){
+  return String(v??'').trim().toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+function ownStatus(v){
+  const x=String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(x==='approved'||x==='onayli'||x==='onaylandi'||x==='onay')return 'approved';
+  if(x==='rejected'||x==='reddedildi'||x==='red')return 'rejected';
+  if(x==='unreachable'||x==='ulasilamadi')return 'unreachable';
+  return 'pending';
+}
+function agentOwnRangeValues(){
+  const now=new Date();
+  const y=now.getFullYear(), m=now.getMonth()+1;
+  const from=document.getElementById('agentReportFrom')?.value || `${y}-${String(m).padStart(2,'0')}-01`;
+  const next=new Date(y,m,1);
+  const last=new Date(next.getTime()-86400000);
+  const defaultTo=`${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`;
+  const to=document.getElementById('agentReportTo')?.value || defaultTo;
+  return {from,to};
+}
+function calcOwnAgentReport(){
+  const {from,to}=agentOwnRangeValues();
+  if(!from||!to||from>to)return {from,to,list:[],counts:{approved:0,rejected:0,pending:0,unreachable:0}};
+  const meU=normalizeAgentKey(db.user?.u), meName=normalizeAgentKey(db.user?.name);
+  const list=db.bookings.filter(b=>{
+    const keys=[b?.employee,b?.agent,b?.username,b?.user,b?.employeeName,b?.agentName].filter(v=>v!==undefined&&v!==null&&String(v).trim()!=='').map(normalizeAgentKey);
+    const own=keys.includes(meU)||keys.includes(meName);
+    if(!own)return false;
+    const d=ownBookingDate(b);
+    return d && d>=from && d<=to;
+  });
+  const counts={approved:0,rejected:0,pending:0,unreachable:0};
+  list.forEach(b=>counts[ownStatus(b.status)]++);
+  return {from,to,list,counts};
+}
+function updateAgentOwnReport(){
+  const box=document.getElementById('agentOwnReportSummary');
+  const hint=document.getElementById('agentOwnReportHint');
+  if(!box)return;
+  const {from,to}=agentOwnRangeValues();
+  if(!from||!to||from>to){
+    if(hint)hint.textContent='Geçerli bir tarih aralığı seçin.';
+    box.innerHTML=`<div><label>TOPLAM</label><b>0</b></div><div><label>ONAYLI</label><b class="approvedCount">0</b></div><div><label>REDDEDİLEN</label><b class="rejectedCount">0</b></div><div><label>BEKLEYEN</label><b>0</b></div><div><label>ULAŞILAMADI</label><b>0</b></div>`;
+    return;
+  }
+  const result=calcOwnAgentReport();
+  const rangeLabel=`${new Date(from+'T12:00:00').toLocaleDateString('tr-TR')} – ${new Date(to+'T12:00:00').toLocaleDateString('tr-TR')}`;
+  if(hint)hint.textContent=`${rangeLabel} · Sadece sana ait terminler`;
+  box.innerHTML=`<div><label>TOPLAM</label><b>${result.list.length}</b></div><div><label>ONAYLI</label><b class="approvedCount">${result.counts.approved}</b></div><div><label>REDDEDİLEN</label><b class="rejectedCount">${result.counts.rejected}</b></div><div><label>BEKLEYEN</label><b>${result.counts.pending}</b></div><div><label>ULAŞILAMADI</label><b>${result.counts.unreachable}</b></div>`;
+}
+function agentOwnMonthlyReport(){
+  const now=new Date();
+  const y=now.getFullYear(), m=now.getMonth()+1;
+  const monthStart=`${y}-${String(m).padStart(2,'0')}-01`;
+  const next=new Date(y,m,1);
+  const last=new Date(next.getTime()-86400000);
+  const monthEnd=`${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`;
+  return `<section class="agentOwnReport"><div class="agentOwnReportHead"><div><h3>Benim Termin Raporum</h3><div class="agentReportHint">${new Date(monthStart+'T12:00:00').toLocaleDateString('tr-TR',{month:'long',year:'numeric'})} · Sadece sana ait terminler</div></div></div><div class="agentOwnReportGrid" id="agentOwnReportSummary"><div><label>TOPLAM</label><b>0</b></div><div><label>ONAYLI</label><b class="approvedCount">0</b></div><div><label>REDDEDİLEN</label><b class="rejectedCount">0</b></div><div><label>BEKLEYEN</label><b>0</b></div><div><label>ULAŞILAMADI</label><b>0</b></div></div></section>`;
+}
+
+function slotCol(s){return Number.isInteger(s?.col)?s.col:Math.max(0,campaigns.findIndex(c=>c[0]===s?.campaign));}
+function grid(slots){
+  const rows = defaultTimes.map(t=>{
+    const byCol = {};
+    slots.filter(s=>s.time===t).forEach(s=>{(byCol[slotCol(s)] ||= []).push(s)});
+    const cells = campaigns.map((_,col)=>{
+      const list=byCol[col]||[];
+      const content=list.length?list.map(s=>card(s)).join(''):`<span class="routeAddLabel">＋ Rota bekleniyor</span>`;
+      return `<div class="campaign-cell ${list.length?'':'empty'}" ondragover="allowDrop(event)" ondrop="dropOnCell(event, ${list[0]?`'${list[0].id}'`:`null`})" ondragleave="dragLeave(event)">${content}</div>`;
+    }).join('');
+    return `<div class="calendar-row"><div class="time">${t}</div>${cells}</div>`;
+  }).join('');
+  return `<div class="calendar-scroll"><div class="calendar">${rows}</div></div>`;
+}
+function newBooking(slotId){let s=db.slots.find(x=>x.id===slotId);document.getElementById('app').insertAdjacentHTML('beforeend',modalHtml(s,null));}
+function modalHtml(s,b){
+let canControl=db.user.role==='admin'&&!!b;
+let owner=b&&db.user.u===b.employee;
+let val=(key,fallback='')=>esc(b?.[key]??fallback);
+return `<div class="modalBack" id="modal"><div class="modal"><div class="modalTitleRow"><div><div class="modalKicker">${esc(s.campaign)} · ${s.time}</div><h3>${b?'Termin Detayı':'Termin Ekle'}</h3></div>${b?`<span class="statusPill ${b.status}">${statusText(b.status)}</span>`:''}</div>
+<label>KUNDE NAME</label><input id="f_kundeName" value="${val('kundeName')}">
+<label>VORNAME</label><input id="f_vorname" value="${val('vorname')}">
+<label>ALTER</label><input id="f_alter" value="${val('alter')}">
+<label>STRASSE</label><input id="f_strasse" value="${val('strasse')}">
+<label>PLZ</label><input id="f_plz" value="${val('plz')}">
+<label>ORT</label><input id="f_ort" value="${val('ort')}">
+<label>FESTNETZ</label><input id="f_festnetz" value="${val('festnetz')}">
+<label>MOBIL</label><input id="f_mobil" value="${val('mobil')}">
+<label>ENTSCHEIDUNGSTRÄGER</label><input id="f_entscheidungstraeger" value="${val('entscheidungstraeger')}">
+<label>GESPROCHEN MIT</label><input id="f_gesprochenMit" value="${val('gesprochenMit',b?.customerName||'')}">
+<label>BAUJAHR</label><input id="f_baujahr" value="${val('baujahr')}">
+<label>TEILNEHMER</label><input id="f_teilnehmer" value="${val('teilnehmer')}">
+<label>HEIZART</label><input id="f_heizart" value="${val('heizart')}">
+<label>BAUJAHR</label><input id="f_heizBaujahr" value="${val('heizBaujahr')}">
+<label>FREI / REIHENHAUS</label><input id="f_freiReihenhaus" value="${val('freiReihenhaus')}">
+<label>VERBRAUCH</label><input id="f_verbrauch" value="${val('verbrauch')}">
+<label>VORLAUFTEMPERATUR</label><input id="f_vorlauftemperatur" value="${val('vorlauftemperatur')}">
+<label>ROHRSYSTEM</label><input id="f_rohrsystem" value="${val('rohrsystem')}">
+<label>BEHEIZTE WOHNFLÄCHE</label><input id="f_beheizteWohnflaeche" value="${val('beheizteWohnflaeche')}">
+${b&&b.controlNote?`<div class="controlNote"><div class="controlNoteTitle">Kontrol birimi notu</div><div>${esc(b.controlNote)}</div></div>`:''}
+${canControl?`<label>Kontrol birimi notu</label><textarea id="cnote" placeholder="Onay veya red nedenini buraya yaz...">${esc(b?.controlNote||'')}</textarea>`:''}
+${b?`<div class="assigned">Termin sahibi: <b>${esc(b.employeeName)}</b></div>`:''}
+<div class="actions actionsWrap"><button class="action gray" onclick="closeModal()">Kapat</button>${b&&canControl?`<button class="action blue" onclick="saveBooking('${s.id}','${b.id}')">Bilgileri Güncelle</button><button class="action green" onclick="setStatus('${b.id}','approved')">Onayla</button><button class="action red" onclick="setStatus('${b.id}','rejected')">Reddet</button><button class="action gray" onclick="setStatus('${b.id}','unreachable')">Ulaşılamadı</button><button class="action dangerOutline" onclick="deleteBooking('${b.id}')">Termini Sil</button><button class="action gray" onclick="openBookingHistory('${b.id}')">Değişiklik Geçmişi</button>`:b&&owner?`<button class="action blue" onclick="saveBooking('${s.id}','${b.id}')">Bilgileri Güncelle</button><button class="action red" onclick="deleteBooking('${b.id}')">Termini Sil</button><button class="action gray" onclick="openBookingHistory('${b.id}')">Değişiklik Geçmişi</button>`:b?'':`<button class="action blue" onclick="saveBooking('${s.id}','')">Kaydet</button>`}${db.user.role==='admin'&&!b?`<button class="action dangerOutline" onclick="deleteRoute('${s.id}')">Rotayı Sil</button>`:''}</div></div>${canControl?`<div class="controlHint">Kontrol birimi: Onayla, Reddet veya Ulaşılamadı seçmeden önce neden/notu yaz. Bu notu termin sahibi de görebilir.</div>`:''}</div></div>`}
+function closeModal(){document.getElementById('modal')?.remove()}
+function saveBooking(slotId,bid){let g=id=>(document.getElementById(id)?.value||'').trim();let x={kundeName:g('f_kundeName'),vorname:g('f_vorname'),alter:g('f_alter'),strasse:g('f_strasse'),plz:g('f_plz'),ort:g('f_ort'),festnetz:g('f_festnetz'),mobil:g('f_mobil'),entscheidungstraeger:g('f_entscheidungstraeger'),gesprochenMit:g('f_gesprochenMit'),baujahr:g('f_baujahr'),teilnehmer:g('f_teilnehmer'),heizart:g('f_heizart'),heizBaujahr:g('f_heizBaujahr'),freiReihenhaus:g('f_freiReihenhaus'),verbrauch:g('f_verbrauch'),vorlauftemperatur:g('f_vorlauftemperatur'),rohrsystem:g('f_rohrsystem'),beheizteWohnflaeche:g('f_beheizteWohnflaeche')};x.customerName=[x.kundeName,x.vorname].filter(Boolean).join(' ')||x.entscheidungstraeger||x.gesprochenMit||'';if(bid){let existing=db.bookings.find(b=>b.id===bid);if(existing){const before=JSON.parse(JSON.stringify(existing));Object.assign(existing,x);let rs=db.slots.find(s=>s.id===existing.slotId);if(rs){existing.routeDate=rs.date;existing.routeTime=rs.time;existing.routeCampaign=rs.campaign;existing.routeCol=rs.col;}const changed=bookingChangedFields(before,existing);if(changed.length)audit('booking.updated','booking',existing.id,existing.customerName||before.customerName,`Değiştirilen alanlar: ${changed.join(', ')}`);}}else{let rs=db.slots.find(s=>s.id===slotId);const b={id:crypto.randomUUID(),slotId,employee:db.user.u,employeeName:db.user.name,status:'pending',createdAt:new Date().toISOString(),routeDate:rs?.date||viewDate,routeTime:rs?.time||'',routeCampaign:rs?.campaign||'',routeCol:rs?.col??'',...x};db.bookings.push(b);audit('booking.created','booking',b.id,b.customerName||'Termin',`Termin oluşturuldu: ${b.routeDate||''} · ${b.routeTime||''} · ${b.routeCampaign||''}`);}save();closeModal();render()}
+function openBooking(id){let b=db.bookings.find(x=>x.id===id);if(!b)return;if(b.employee!==db.user.u&&db.user.role!=='admin')return alert('Bu termin detaylarını sadece sahibi ve admin görebilir.');let s=b.slotId?db.slots.find(x=>x.id===b.slotId):{id:null,date:b.rejectedDate||viewDate,time:b.rejectedTime||'—',campaign:b.rejectedCampaign||'—'};document.getElementById('app').insertAdjacentHTML('beforeend',modalHtml(s,b))}
+
+function agentMonthlyReport(){
+  const now=new Date();
+  const y=now.getFullYear(), m=now.getMonth()+1;
+  const monthStart=`${y}-${String(m).padStart(2,'0')}-01`;
+  const next=new Date(y,m,1);
+  const last=new Date(next.getTime()-86400000);
+  const monthEnd=`${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`;
+  return `<section class="agentReport"><div class="agentReportHead"><div><h3>Agent / Admin Termin Raporu</h3><div class="agentReportHint" id="adminAgentReportHint">${new Date(monthStart+'T12:00:00').toLocaleDateString('tr-TR',{month:'long',year:'numeric'})} · Seçilen tarih aralığındaki tüm kullanıcı terminleri · En çok onaylı termin sayısından aşağıya doğru sıralanır.</div></div></div><div class="agentOwnReportFilters adminAgentReportFilters"><div><label>BAŞLANGIÇ TARİHİ</label><input id="adminAgentReportFrom" type="date" value="${monthStart}"></div><div><label>BİTİŞ TARİHİ</label><input id="adminAgentReportTo" type="date" value="${monthEnd}"></div><button class="action blue" onclick="updateAdminAgentReport()">Raporu Göster</button></div><div class="agentReportTableWrap"><table class="agentReportTable"><thead><tr><th>#</th><th>Kullanıcı</th><th>Toplam</th><th>Onaylı</th><th>Reddedilen</th><th>Bekleyen</th><th>Ulaşılamadı</th></tr></thead><tbody id="adminAgentReportBody"><tr><td colspan="7">Rapor hazırlanıyor…</td></tr></tbody></table></div></section>`;
+}
+
+function updateAdminAgentReport(){
+  const from=document.getElementById('adminAgentReportFrom')?.value||'';
+  const to=document.getElementById('adminAgentReportTo')?.value||'';
+  const body=document.getElementById('adminAgentReportBody');
+  const hint=document.getElementById('adminAgentReportHint');
+  if(!body||!hint)return;
+  if(!from||!to||from>to){
+    hint.textContent='Geçerli bir tarih aralığı seçin.';
+    body.innerHTML='<tr><td colspan="7">Geçerli bir tarih aralığı seçin.</td></tr>';
+    return;
+  }
+  const normalizeDate=(v)=>{
+    if(!v)return '';
+    const s=String(v).trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+    const m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+    return m?`${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`:s;
+  };
+  const norm=(v)=>String(v??'').trim().toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const status=(v)=>{
+    const x=norm(v);
+    if(['approved','onayli','onaylandi','onay'].includes(x))return 'approved';
+    if(['rejected','reddedildi','red'].includes(x))return 'rejected';
+    if(['unreachable','ulasilamadi'].includes(x))return 'unreachable';
+    return 'pending';
+  };
+  const slotFor=(b)=>{
+    if(!b)return null;
+    return (b.slotId&&db.slots.find(s=>s.id===b.slotId))||(b.rejectedSlotId&&db.slots.find(s=>s.id===b.rejectedSlotId))||null;
+  };
+  const bookingDate=(b)=>normalizeDate(b?.routeDate||b?.date||b?.appointmentDate||b?.rejectedDate||slotFor(b)?.date||'');
+  const bookingEmployeeValues=(b)=>[b?.employee,b?.agent,b?.username,b?.user,b?.employeeName,b?.agentName].filter(v=>v!==undefined&&v!==null&&String(v).trim()!=='').map(norm);
+  const range=db.bookings.filter(b=>{const d=bookingDate(b);return d&&d>=from&&d<=to;});
+  // Admin ve Agent hesaplarının tamamı rapora dahil edilir.
+  const users=db.employees.filter(e=>e && (e.role==='admin'||e.role==='agent'||e.role==='employee'));
+  const rows=users.map(e=>{
+    const keys=new Set([norm(e.u),norm(e.name)]);
+    const own=range.filter(b=>bookingEmployeeValues(b).some(v=>keys.has(v)));
+    const counts={approved:0,rejected:0,pending:0,unreachable:0};
+    own.forEach(b=>{const k=status(b.status);if(counts[k]!==undefined)counts[k]++;});
+    return {e,total:own.length,approved:counts.approved,rejected:counts.rejected,pending:counts.pending,unreachable:counts.unreachable};
+  }).sort((a,b)=>b.approved-a.approved||b.total-a.total||a.e.name.localeCompare(b.e.name,'tr'));
+  const rangeLabel=`${new Date(from+'T12:00:00').toLocaleDateString('tr-TR')} – ${new Date(to+'T12:00:00').toLocaleDateString('tr-TR')}`;
+  hint.textContent=`${rangeLabel} · Seçilen tarih aralığındaki tüm kullanıcı terminleri · En çok onaylı termin sayısından aşağıya doğru sıralanır.`;
+  body.innerHTML=rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${esc(r.e.name)}</b><span>${esc(r.e.u)} · ${r.e.role==='admin'?'Admin':'Agent'}</span></td><td>${r.total}</td><td class="approvedCount">${r.approved}</td><td class="rejectedCount">${r.rejected}</td><td>${r.pending}</td><td>${r.unreachable}</td></tr>`).join(''):`<tr><td colspan="7">Henüz kullanıcı hesabı bulunmuyor.</td></tr>`;
+}
+
+
+function admin(){let d=viewDate,slots=db.slots.filter(s=>s.date===d);document.getElementById('app').innerHTML=header()+`<div class="wrap"><div class="toolbar" style="justify-content:flex-end;margin-bottom:10px"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action gray" onclick="report()">Rapor</button><button class="action blue" onclick="manageUsers()">Personeller</button><button class="action gray" onclick="managePayrolls()">Maaşlar</button><button class="action gray" onclick="manageWorkSchedule()">Mesai</button><button class="action gray" onclick="manageAnnouncements()">Duyuru</button><button class="action gray" onclick="manageAuditLogs()">Geçmiş</button><button class="action dangerOutline" onclick="openDeletedBookings()">Silinenler<span id="deletedCountBadge"></span></button></div></div>${gridAdmin(slots)}${rejectedBookings()}<div class="adminBar"><div><label>AÇIK ROTA</label><b>${slots.length}</b></div><div><label>KONTROL BEKLEYENLER</label><b>${db.bookings.filter(b=>b.status==='pending').length}</b></div><div><label>ONAYLANAN</label><b style="color:#159653">${db.bookings.filter(b=>b.status==='approved').length}</b></div><div><label>REDDEDİLEN</label><b style="color:#d33">${db.bookings.filter(b=>b.status==='rejected').length}</b></div><div><label>ULAŞILAMADI</label><b style="color:#5b6472">${db.bookings.filter(b=>b.status==='unreachable').length}</b></div></div>${agentMonthlyReport()}</div>`}
+function gridAdmin(slots){
+  let rows=defaultTimes.map(t=>{
+    const byCol={};
+    slots.filter(s=>s.time===t).forEach(s=>{(byCol[slotCol(s)] ||= []).push(s)});
+    const cells=campaigns.map((_,col)=>{
+      const list=byCol[col]||[];
+      const content=list.length?list.map(s=>adminCard(s)).join(''):'<span class="routeAddLabel">＋ Rota Ekle</span>';
+      return `<div class="campaign-cell ${list.length?'':'empty'}" title="Bu kutuda istediğin kampanyayı açabilirsin" onclick="adminAddAtTime('${t}',${col})" ondragover="allowDrop(event)" ondrop="dropOnCell(event, ${list[0]?`'${list[0].id}'`:`null`})" ondragleave="dragLeave(event)">${content}</div>`;
+    }).join('');
+    return `<div class="calendar-row"><div class="time">${t}</div>${cells}</div>`;
+  }).join('');
+  return `<div class="calendar-scroll"><div class="calendar">${rows}</div></div><div class="legend">${campaigns.map(c=>`<span style="background:${c[1]};color:#17304d">${c[0]}</span>`).join('')}</div>`;
+}
+function adminCard(slot){let c=campObj(slot.campaign),b=booking(slot),status=b?.status;let drag=(b&&canDragBooking(b))?` draggable="true" ondragstart="dragStart(event,'${b.id}')" ondragend="dragEnd()"`:``;let click=b?`openBooking('${b.id}')`:`newBooking('${slot.id}')`;return `<div class="card ${c[2]} ${b?'filled draggable-card':'emptyCard'}" ${drag} onclick="event.stopPropagation();${click}">${status?`<span class="statusBadge ${status}">${statusText(status)}</span>`:''}<div class="campaign">${c[0]}</div><div class="divider"></div><div class="person">${b?esc(b.employeeName):'<span class="emptyLabel">Termin ekle</span>'}</div></div>`}
+let draggingBookingId=null;let didDrag=false;let suppressClick=false;
+function canDragBooking(b){return !!b && b.status==='pending' && (db.user.role==='admin'||b.employee===db.user.u)}
+function cardClick(action){if(suppressClick){suppressClick=false;return} if(action.startsWith('openBooking(')){openBooking(action.slice(13,-2))} else if(action.startsWith('newBooking(')){newBooking(action.slice(12,-2))}}
+function dragStart(e,id){let b=db.bookings.find(x=>x.id===id);if(!b||!canDragBooking(b))return;e.stopPropagation();draggingBookingId=id;didDrag=false;suppressClick=false;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',id);document.querySelectorAll('.campaign-cell.empty').forEach(el=>el.classList.add('drop-target'))}
+function dragEnd(){suppressClick=didDrag;setTimeout(()=>{suppressClick=false;didDrag=false},120);draggingBookingId=null;document.querySelectorAll('.campaign-cell').forEach(el=>el.classList.remove('drop-target'))}
+function allowDrop(e){if(!draggingBookingId)return;e.preventDefault();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drop-target')}
+function dragLeave(e){e.currentTarget.classList.remove('drop-target')}
+function dropOnCell(e,targetSlotId){e.preventDefault();e.stopPropagation();didDrag=true;if(!draggingBookingId)return;let b=db.bookings.find(x=>x.id===draggingBookingId);if(!b)return;let target=targetSlotId?db.slots.find(s=>s.id===targetSlotId):null;if(!target){alert('Önce bu saate aynı kampanya için bir rota açılmalı.');dragEnd();return}let oldSlot=db.slots.find(s=>s.id===b.slotId);if(target.campaign!==oldSlot?.campaign){alert('Termin sadece aynı kampanya sütununda başka bir saate taşınabilir.');dragEnd();return}if(booking(target)){alert('Bu saatte bu kampanyanın rotası zaten dolu.');dragEnd();return}const oldDate=oldSlot?.date||b.routeDate,oldTime=oldSlot?.time||b.routeTime;b.slotId=target.id;b.routeDate=target.date;b.routeTime=target.time;b.routeCampaign=target.campaign;b.routeCol=target.col;audit('booking.moved','booking',b.id,b.customerName||'Termin',`Termin taşındı: ${oldDate||''} ${oldTime||''} → ${target.date} ${target.time}`);save();dragEnd();render()}
+function adminAddAtTime(t,col){
+  const options=campaigns;
+  const defaultCampaign=options[col]?.[0]||options[0]?.[0]||'';
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="modal"><div class="modal"><h3>Rota Ekle</h3><p style="color:#68758b">Tarih: <b>${fmt(viewDate)}</b><br>Saat: <b>${esc(t)}</b><br><b>Tıkladığın kutu:</b> ${esc(defaultCampaign)}<br><span style="font-size:12px">İstediğin kampanyayı seçebilirsin; seçtiğin kampanya tıkladığın kutuda kalır.</span></p><label>Kampanya</label><select id="rc">${options.map((c,i)=>`<option value="${esc(c[0])}" ${i===col?'selected':''}>${c[0]}</option>`).join('')}</select><div class="actions"><button class="action gray" onclick="closeModal()">İptal</button><button class="action blue" onclick="createRouteAtTime('${t}',${col})">Rotayı Aç</button></div></div></div>`);
+}
+function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)box.innerHTML=window.__renderDeletedBookings(q);}
+function restoreDeletedBooking(id){
+  if(db.user?.role!=='admin')return;
+  const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return alert('Silinen termin bulunamadı.');
+  const b=JSON.parse(JSON.stringify(db.deletedBookings[idx]));
+  delete b.deletedAt;delete b.deletedBy;delete b.deletedByName;delete b.deletedReason;
+  if(b.slotId && !db.slots.some(s=>s.id===b.slotId)){
+    const slot={id:b.slotId,date:b.routeDate||b.rejectedDate||viewDate,time:b.routeTime||b.rejectedTime||'08:00-09:00',campaign:b.routeCampaign||b.rejectedCampaign||'TURUNCU',col:Number.isInteger(b.routeCol)?b.routeCol:Math.max(0,campaigns.findIndex(c=>c[0]===(b.routeCampaign||b.rejectedCampaign)))};
+    db.slots.push(slot);
+  }
+  if(db.bookings.some(x=>x.id===b.id))return alert('Bu termin zaten takvimde bulunuyor.');
+  if(b.slotId){const target=db.slots.find(s=>s.id===b.slotId);if(target&&booking(target))return alert('Bu termin için rota şu anda başka bir termin tarafından kullanılıyor. Önce rotayı kontrol et.');}
+  db.bookings.push(b);db.deletedBookings.splice(idx,1);
+  audit('booking.restored','booking',b.id,b.customerName||'Termin',`Termin geri yüklendi: ${b.routeDate||b.rejectedDate||''} · ${b.routeTime||b.rejectedTime||''} · ${b.routeCampaign||b.rejectedCampaign||''}`);
+  save();document.getElementById('deletedBookingsModal')?.remove();render();alert('Termin başarıyla geri yüklendi.');
+}
+function permanentlyDeleteBooking(id){
+  if(db.user?.role!=='admin')return;
+  const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return;
+  const b=db.deletedBookings[idx];
+  if(!confirm('Bu termin kalıcı olarak silinsin mi? Bu işlem geri alınamaz.'))return;
+  audit('booking.deletedPermanent','booking',b.id,b.customerName||'Termin','Termin silinenler alanından kalıcı olarak silindi.');
+  db.deletedBookings.splice(idx,1);save();document.getElementById('deletedBookingsModal')?.remove();openDeletedBookings();
+}
+function viewDeletedBooking(id){
+  if(db.user?.role!=='admin')return;
+  const b=(db.deletedBookings||[]).find(x=>x.id===id);if(!b)return;
+  const name=b.customerName||(((b.kundeName||'')+' '+(b.vorname||'')).trim())||'Termin';
+  document.getElementById('deletedDetailModal')?.remove();
+  const fields=[['Kunde Name',b.kundeName||b.customerName||''],['Vorname',b.vorname||''],['Straße',b.strasse||''],['PLZ',b.plz||''],['Ort',b.ort||''],['Festnetz',b.festnetz||''],['Mobil',b.mobil||''],['Agent',b.employeeName||b.employee||''],['Tarih',b.routeDate||b.rejectedDate||b.date||''],['Saat',b.routeTime||b.rejectedTime||b.time||''],['Kampanya',b.routeCampaign||b.rejectedCampaign||b.campaign||''],['Durum',statusText(b.status||'pending')]];
+  const html=fields.map(([k,v])=>`<div style="padding:8px 0;border-bottom:1px solid #edf1f6"><div style="font-size:9px;color:#728198;font-weight:800;text-transform:uppercase">${esc(k)}</div><div style="margin-top:3px;font-weight:700">${esc(v||'—')}</div></div>`).join('');
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="deletedDetailModal"><div class="modal" style="max-width:620px"><div class="modalKicker">SİLİNEN TERMİN</div><h3>${esc(name)}</h3><div style="margin-top:10px">${html}</div><div class="actions"><button class="action gray" onclick="document.getElementById('deletedDetailModal')?.remove()">Kapat</button><button class="action blue" onclick="document.getElementById('deletedDetailModal')?.remove();restoreDeletedBooking('${esc(id)}')">Geri Yükle</button></div></div></div>`);
+}
+
+function rejectedBookings(){let list=db.bookings.filter(b=>b.status==='rejected' && (db.user.role==='admin'||b.employee===db.user.u));if(!list.length)return '';return `<div style="margin:14px 0"><button class="action red" onclick="openRejectedModal()">Reddedilenler (${list.length})</button></div>`}
+function openRejectedModal(){let list=db.bookings.filter(b=>b.status==='rejected' && (db.user.role==='admin'||b.employee===db.user.u));if(!list.length)return alert('Reddedilen termin bulunmuyor.');let renderList=(q='')=>{q=q.trim().toLocaleLowerCase('tr-TR');let filtered=list.filter(b=>{let name=(b.customerName||((b.kundeName||'')+' '+(b.vorname||''))||'').toLocaleLowerCase('tr-TR');let phone=((b.mobil||'')+' '+(b.festnetz||'')).toLocaleLowerCase('tr-TR');return !q||name.includes(q)||phone.includes(q)});return filtered.slice().reverse().map(b=>`<div class="rejectedItem" onclick="openBookingFromRejected('${b.id}')"><div><b>${esc(b.customerName||((b.kundeName||'')+' '+(b.vorname||''))||'İsimsiz müşteri')}</b><span>${esc(b.employeeName||'')} · ${esc(b.rejectedDate||'')} · ${esc(b.rejectedCampaign||'')} · ${esc(b.rejectedTime||'')}</span></div><span class="statusBadge rejected">REDDEDİLDİ</span></div>`).join('') || '<div style="padding:18px;text-align:center;color:#748096">Aradığınız kriterde reddedilen termin bulunamadı.</div>'};document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="rejectedModal"><div class="modal" style="max-width:760px"><div class="modalTitleRow"><div><div class="modalKicker">TERMIN ARŞİVİ</div><h3>Reddedilen Terminler</h3><div style="color:#748096;font-size:12px;margin-top:4px">${db.user.role==='admin'?'Tüm çalışanların reddedilen terminleri':'Sadece sizin reddedilen terminleriniz'}</div></div><span class="statusPill rejected" id="rejectedCount">${list.length} ADET</span></div><div style="margin-top:14px"><input id="rejectedSearch" type="search" placeholder="Kunde adı veya telefon numarası ile ara..." style="width:100%;box-sizing:border-box;padding:11px 13px;border:1px solid #d8dee8;border-radius:10px;font-size:14px;outline:none" oninput="filterRejectedBookings(this.value)"></div><div class="rejectedPanel" id="rejectedResults" style="margin-top:10px;max-height:55vh;overflow:auto">${renderList()}</div><div class="actions"><button class="action gray" onclick="document.getElementById('rejectedModal')?.remove()">Kapat</button></div></div></div>`);window.__rejectedList=list;window.__renderRejected=renderList} 
+function filterRejectedBookings(q){let box=document.getElementById('rejectedResults');if(box&&window.__renderRejected)box.innerHTML=window.__renderRejected(q);}
+function openBookingFromRejected(id){document.getElementById('rejectedModal')?.remove();openBooking(id)}
+function deleteRoute(id){const slot=db.slots.find(s=>s.id===id);let b=booking(slot);if(b)return alert('Bu rotada termin var. Önce termini kontrol/iptal etmelisin.');if(!slot)return;if(!confirm('Bu rotayı tamamen silmek istediğine emin misin?'))return;audit('route.deleted','route',slot.id,`${slot.campaign} · ${slot.time}`,`Rota silindi: ${fmt(slot.date)} · ${slot.time} · ${slot.campaign}`);db.slots=db.slots.filter(s=>s.id!==id);save();render()}
+function manageAnnouncements(){if(db.user.role!=='admin')return;db.announcements=db.announcements||[];let list=db.announcements.slice().reverse();document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="announcementModal"><div class="modal" style="max-width:680px"><div class="modalTitleRow"><div><div class="modalKicker">YÖNETİM</div><h3>Duyuru / İkaz Gönder</h3></div></div><label>BAŞLIK</label><input id="annTitle" placeholder="Örn. Önemli bilgilendirme"><label>MESAJ</label><textarea id="annBody" rows="5" placeholder="Tüm ekip için duyurunuzu yazın..."></textarea><div class="actions"><button class="action gray" onclick="document.getElementById('announcementModal')?.remove()">Kapat</button><button class="action blue" onclick="sendAnnouncement()">Herkese Gönder</button></div><div style="margin-top:16px;border-top:1px solid #e5e9f0;padding-top:12px"><b style="font-size:13px">Son duyurular</b><div style="font-size:11px;color:#8792a3;margin-top:4px">Duyurular 7 gün sonra otomatik olarak silinir.</div>${list.slice(0,8).map(a=>`<div style="padding:9px 0;border-bottom:1px solid #eef1f5"><b>${esc(a.title)}</b><div style="font-size:12px;color:#748096">${esc(a.body)} · ${new Date(a.createdAt).toLocaleString('tr-TR')}</div></div>`).join('')||'<div style="color:#748096;font-size:12px;margin-top:8px">Henüz duyuru yok.</div>'}</div></div></div>`)}
+async function sendAnnouncement(){
+  if(db.user?.role!=='admin')return;
+  const title=(document.getElementById('annTitle')?.value||'').trim(),body=(document.getElementById('annBody')?.value||'').trim();
+  if(!title||!body)return alert('Başlık ve mesajı doldur.');
+  try{
+    const now=new Date().toISOString();
+    const {data:row,error}=await dkSupabase.from('announcements').insert({
+      title,
+      body,
+      sender_id:db.user.authId,
+      created_at:now
+    }).select('*').single();
+    if(error)throw error;
+    audit('announcement.created','announcement',row?.id||crypto.randomUUID(),title,'Duyuru oluşturuldu ve ekibe gönderildi.');
+    await syncOnlineCommunication();
+    document.getElementById('announcementModal')?.remove();
+    alert('Duyuru tüm aktif kullanıcılara gönderildi.');
+    render();
+  }catch(e){alert(`Duyuru gönderilemedi: ${e.message||e}`);}
+}
+let dkAnnouncementCheckBusy=false;
+async function fetchPendingAnnouncement(){
+  if(!db.user||!dkSupabase||!db.user.authId)return null;
+  if(dkAnnouncementCheckBusy)return null;
+  dkAnnouncementCheckBusy=true;
+  try{
+    const {data:anns,error:aErr}=await dkSupabase
+      .from('announcements')
+      .select('id,title,body,sender_id,requires_ack,created_at')
+      .eq('requires_ack',true)
+      .order('created_at',{ascending:false})
+      .limit(50);
+    if(aErr)throw aErr;
+    const now=Date.now();
+    const active=(anns||[]).filter(a=>{
+      const t=Date.parse(a.created_at||'');
+      return !Number.isFinite(t)||now-t<=7*24*60*60*1000;
+    });
+    if(!active.length)return null;
+
+    const {data:acks,error:qErr}=await dkSupabase
+      .from('announcement_acknowledgements')
+      .select('announcement_id, user_id, acknowledged_at')
+      .eq('user_id',db.user.authId);
+    if(qErr)throw qErr;
+    const acked=new Set((acks||[]).map(x=>String(x.announcement_id)));
+    // Do not notify the user who created the announcement; all other active accounts may acknowledge it.
+    const unread=active.find(a=>String(a.sender_id||'')!==String(db.user.authId||'') && !acked.has(String(a.id)));
+    if(!unread)return null;
+    db.announcements=(anns||[]).map(a=>dkAnnouncementToLocal(a,acks||[]));
+    save();
+    return unread;
+  }catch(e){
+    console.error('Danke Kalender duyuru kontrolü:',e);
+    return null;
+  }finally{
+    dkAnnouncementCheckBusy=false;
+  }
+}
+
+async function showUnreadAnnouncements(force=false){
+  if(!db.user)return;
+  if(document.getElementById('announcementNotice'))return;
+  const unread=await fetchPendingAnnouncement();
+  if(!unread){
+    if(force) stopPersistentAlertSound();
+    return;
+  }
+  const a=unread;
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="announcementNotice"><div class="modal" style="max-width:560px"><div class="modalTitleRow"><div><div class="modalKicker">⚠️ YENİ DUYURU</div><h3>${esc(a.title||'Duyuru')}</h3></div><span class="statusPill pending">İKAZ</span></div><div style="font-size:15px;line-height:1.6;color:#24344d;white-space:pre-wrap;margin-top:10px">${esc(a.body||'')}</div><div style="font-size:11px;color:#7b8798;margin-top:12px">${new Date(a.created_at).toLocaleString('tr-TR')}</div><div class="actions"><button class="action blue" onclick="ackAnnouncement('${esc(a.id)}')">✓ Okudum / Onaylıyorum</button></div></div></div>`);
+  startPersistentAlertSound('announcement','ann:'+a.id);
+}
+
+async function ackAnnouncement(id){
+  const a=(db.announcements||[]).find(x=>x.id===id);if(!a||!db.user?.authId)return;
+  try{
+    const now=new Date().toISOString();
+    let ackRes=await dkSupabase.from('announcement_acknowledgements').upsert({
+      announcement_id:id,
+      user_id:db.user.authId,
+      acknowledged_at:now
+    },{onConflict:'announcement_id,user_id'});
+    if(ackRes.error){
+      ackRes=await dkSupabase.from('announcement_acknowledgements').insert({
+        announcement_id:id,
+        user_id:db.user.authId,
+        acknowledged_at:now
+      });
+    }
+    if(ackRes.error)throw ackRes.error;
+    a.reads=a.reads||[];if(!a.reads.includes(db.user.u))a.reads.push(db.user.u);
+    stopPersistentAlertSound('ann:'+id);document.getElementById('announcementNotice')?.remove();
+    await syncOnlineCommunication();
+    await showUnreadAnnouncements();
+  }catch(e){alert(`Duyuru onayı kaydedilemedi: ${e.message||e}`);}
+}
+async function syncOnlineProfiles(){
+  if(!db.user?.authId)return;
+  try{
+    const {data,error}=await dkSupabase.from('profiles').select('id,full_name,username,role,is_active,email').eq('is_active',true).order('full_name');
+    if(error)throw error;
+    if(!Array.isArray(db.employees))db.employees=[];
+    for(const p of (data||[])){
+      const role=p.role==='admin'?'admin':'employee';
+      const existing=db.employees.find(e=>e.u===p.username)||{};
+      const merged={...existing,u:p.username,name:p.full_name,role,authId:p.id,email:p.email||existing.email||''};
+      const idx=db.employees.findIndex(e=>e.u===p.username);
+      if(idx>=0)db.employees[idx]={...db.employees[idx],...merged};
+      else db.employees.push(merged);
+    }
+    save();
+    return true;
+  }catch(e){console.warn('Online profiller alınamadı:',e);return false;}
+}
+
+async function manageUsers(){
+ if(db.user.role!=='admin')return;
+ await syncOnlineProfiles();
+ let admins=db.employees.filter(e=>e.role==='admin');
+ let employees=db.employees.filter(e=>e.role==='employee' || e.role==='agent');
+ let adminRows=admins.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #edf1f6"><div><b>${esc(e.name)}</b><div style="font-size:12px;color:#7a8799">${esc(e.u)} · Admin</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="action gray" onclick="editUser('${esc(e.u)}')">Düzenle</button><button class="action gray" onclick="openPayrollAdmin('${esc(e.u)}')">Maaş / Not</button><button class="action gray" onclick="resetUserPassword('${esc(e.u)}')">Şifre</button>${e.u!==db.user.u?`<button class="action dangerOutline" onclick="deleteUser('${esc(e.u)}')">Sil</button>`:''}</div></div>`).join('')||'<div style="padding:12px 0;color:#748096">Henüz ek admin hesabı yok.</div>';
+ let rows=employees.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #edf1f6"><div><b>${esc(e.name)}</b><div style="font-size:12px;color:#7a8799">${esc(e.u)} · Agent</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="action gray" onclick="editUser('${esc(e.u)}')">Düzenle</button><button class="action gray" onclick="openPayrollAdmin('${esc(e.u)}')">Maaş / Not</button><button class="action gray" onclick="resetUserPassword('${esc(e.u)}')">Şifre</button><button class="action dangerOutline" onclick="deleteUser('${esc(e.u)}')">Sil</button></div></div>`).join('')||'<div style="padding:12px 0;color:#748096">Henüz agent hesabı yok.</div>';
+ document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="usersModal"><div class="modal" style="max-width:760px"><div class="modalTitleRow"><div><div class="modalKicker">KULLANICI YÖNETİMİ</div><h3>Personel ve Admin Hesapları</h3><div style="color:#748096;font-size:12px">Admin olarak yeni Agent veya yeni Admin hesabı oluşturabilir, kullanıcı adını, adı ve şifreyi daha sonra değiştirebilirsin.</div></div></div>
+ <div style="margin-top:14px;padding:14px;background:#f6f8fb;border-radius:12px"><h4 style="margin:0 0 10px">Yeni Hesap Oluştur</h4><div style="font-size:12px;color:#748096;margin-bottom:10px">Hesap online olarak Supabase'e kaydedilir. Giriş için ayrıca e-posta girmen gerekmez.</div><label>HESAP TÜRÜ</label><select id="nu_role"><option value="agent">Agent</option><option value="admin">Admin</option></select><label>AD SOYAD</label><input id="nu_name" placeholder="Örn. Max Mustermann"><label>KULLANICI ADI</label><input id="nu_user" placeholder="Örn. max"><label>ŞİFRE</label><input id="nu_pass" type="password" placeholder="En az 8 karakter"><div class="actions"><button class="action blue" onclick="createUser()">Hesap Oluştur</button></div></div>
+ <div style="margin-top:16px"><h4 style="margin:0 0 6px">Admin Hesapları</h4>${adminRows}</div>
+ <div style="margin-top:16px"><h4 style="margin:0 0 6px">Agent Hesapları</h4>${rows}</div>
+ <div class="actions"><button class="action gray" onclick="document.getElementById('usersModal')?.remove()">Kapat</button></div></div></div>`)
+}
+async function createUser(){
+  if(db.user?.role!=='admin')return alert('Bu işlem sadece Admin tarafından yapılabilir.');
+  const role=document.getElementById('nu_role')?.value||'agent';
+  const name=(document.getElementById('nu_name')?.value||'').trim();
+  const u=(document.getElementById('nu_user')?.value||'').trim().toLowerCase();
+  const p=(document.getElementById('nu_pass')?.value||'').trim();
+
+  if(!name||!u||!p)return alert('Ad soyad, kullanıcı adı ve şifre zorunlu.');
+  if(p.length<8)return alert('Şifre en az 8 karakter olmalı.');
+  if(!/^[a-z0-9._-]+$/.test(u))return alert('Kullanıcı adında sadece a-z, 0-9, nokta, alt çizgi ve tire kullanılabilir.');
+
+  try{
+    let session=dkAuthSession;
+
+    if(!session?.user || !session.access_token){
+      const current=await dkSupabase.auth.getSession();
+      if(current.error)throw new Error('Admin oturumu doğrulanamadı: '+current.error.message);
+      session=current.data.session||null;
+      dkAuthSession=session;
+    }
+
+    if(!session?.user || !session.access_token){
+      const refreshed=await dkSupabase.auth.refreshSession();
+      if(refreshed.error)throw new Error('Admin oturumu yenilenemedi: '+refreshed.error.message);
+      session=refreshed.data.session||null;
+      dkAuthSession=session;
+    }
+
+    if(!session?.user || !session.access_token){
+      throw new Error('Aktif Supabase oturumu bulunamadı. Lütfen çıkış yapıp tekrar giriş yap.');
+    }
+
+    const result=await dkSupabase.functions.invoke('create-user',{
+      headers:{Authorization:`Bearer ${session.access_token}`},
+      body:{password:p,full_name:name,username:u,role}
+    });
+
+    const {data,error}=result;
+
+    if(error){
+      let detail='';
+      try{
+        if(error.context instanceof Response){
+          const raw=await error.context.text();
+          try{
+            const parsed=JSON.parse(raw);
+            detail=parsed?.error||parsed?.message||raw;
+          }catch(_){ detail=raw; }
+        }
+      }catch(_){ }
+      throw new Error(detail||error.message||'Edge Function çağrısı başarısız.');
+    }
+
+    if(data?.error)throw new Error(data.error);
+    if(data?.ok===false)throw new Error(data.error||'Kullanıcı oluşturulamadı.');
+    if(data?.success!==true && data?.ok!==true){
+      throw new Error('Beklenmeyen Edge Function yanıtı.');
+    }
+
+    await syncOnlineProfiles();
+    const created=db.employees.find(e=>e.u===u)||{u,name,role:role==='admin'?'admin':'employee'};
+    audit('user.created','user',u,name,`${role==='admin'?'Admin':'Agent'} hesabı online olarak oluşturuldu.`);
+    save();
+    document.getElementById('usersModal')?.remove();
+    await manageUsers();
+    alert(role==='admin'?'Admin hesabı oluşturuldu.':'Agent hesabı oluşturuldu.');
+  }catch(e){
+    console.error('createUser failed',e);
+    alert(`Hesap oluşturulamadı: ${e?.message||e}`);
+  }
+}
+function editUser(oldU){let e=db.employees.find(x=>x.u===oldU);if(!e)return;let name=prompt(`${e.role==='admin'?'Admin':'Agent'} adı soyadı:`,e.name);if(name===null)return;name=name.trim();if(!name)return alert('Ad soyad boş olamaz.');let u=prompt('Kullanıcı adı:',e.u);if(u===null)return;u=u.trim().toLowerCase();if(!u)return alert('Kullanıcı adı boş olamaz.');if(!/^[a-z0-9._-]+$/.test(u))return alert('Kullanıcı adında sadece a-z, 0-9, nokta, alt çizgi ve tire kullanılabilir.');if(db.employees.some(x=>x.u===u&&x!==e))return alert('Bu kullanıcı adı zaten kullanılıyor.');const oldName=e.name;e.name=name;e.u=u;db.bookings.forEach(b=>{if(b.employee===oldU)b.employee=u;});if(db.user.u===oldU)db.user=e;audit('user.updated','user',u,name,`Hesap güncellendi: ${oldName} / ${oldU} → ${name} / ${u}`);save();document.getElementById('usersModal')?.remove();manageUsers();alert('Hesap bilgileri güncellendi.');}
+function resetUserPassword(u){let e=db.employees.find(x=>x.u===u);if(!e)return;let p=prompt(`${e.name} için yeni şifre:`,'');if(p===null)return;p=p.trim();if(p.length<4)return alert('Şifre en az 4 karakter olmalı.');e.p=p;if(db.user.u===u)db.user.p=p;audit('user.password','user',u,e.name,'Şifre güncellendi. Şifrenin kendisi işlem geçmişine kaydedilmedi.');save();alert('Şifre güncellendi.');}
+function deleteUser(u){let e=db.employees.find(x=>x.u===u);if(!e)return;if(e.u===db.user.u)return alert('Kendi admin hesabını silemezsin.');if(!confirm(`${e.name} hesabını silmek istediğine emin misin? Mevcut terminler silinmez.`))return;audit('user.deleted','user',u,e.name,`${e.role==='admin'?'Admin':'Agent'} hesabı silindi.`);db.employees=db.employees.filter(x=>x.u!==u);save();document.getElementById('usersModal')?.remove();manageUsers();}
+function changeOwnPassword(){if(!db.user||db.user.role!=='admin')return alert('Agent kullanıcıları şifrelerini değiştiremez.');let old=prompt('Mevcut şifreniz:');if(old===null)return;if(old!==db.user.p)return alert('Mevcut şifre yanlış.');let np=prompt('Yeni şifre (en az 4 karakter):');if(np===null)return;np=np.trim();if(np.length<4)return alert('Şifre en az 4 karakter olmalı.');let e=db.employees.find(x=>x.u===db.user.u);if(e){e.p=np;db.user.p=np;save();alert('Şifreniz güncellendi.');}}
+
+function timeToMin(t){if(!/^\d{2}:\d{2}$/.test(String(t||'')))return null;const [h,m]=String(t).split(':').map(Number);return h*60+m}
+function currentLocalDateTime(){const d=new Date();const yyyy=d.getFullYear();const mm=String(d.getMonth()+1).padStart(2,'0');const dd=String(d.getDate()).padStart(2,'0');return {date:`${yyyy}-${mm}-${dd}`,minutes:d.getHours()*60+d.getMinutes(),hhmm:`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`}}
+function getTodaySchedule(){const day=String(new Date().getDay());return db.workSchedule?.[day]||null}
+function scheduleBreakKey(date,dayIndex,start){return `${date}_${dayIndex}_${start}`}
+function checkBreakNotification(){
+  if(!db.user)return;
+  const now=currentLocalDateTime();
+  const dayIndex=String(new Date().getDay());
+  const sc=db.workSchedule?.[dayIndex];
+  if(!sc||sc.enabled===false||!Array.isArray(sc.breaks))return;
+  if(!db.breakNoticeSeenV2||typeof db.breakNoticeSeenV2!=='object')db.breakNoticeSeenV2={};
+  const keyBase=`${now.date}_${db.user.u}_`;
+  for(const br of sc.breaks){
+    const startMin=timeToMin(br.start);
+    const endMin=timeToMin(br.end);
+    if(startMin===null)continue;
+    // Trigger at any point during the configured break window. This also works if the page was opened after the exact start minute.
+    const effectiveEnd=endMin===null?startMin+1:endMin;
+    if(now.minutes<startMin||now.minutes>=effectiveEnd)continue;
+    const seenKey=keyBase+(br.start||'')+'_'+(br.end||'');
+    if(db.breakNoticeSeenV2[seenKey])continue;
+    db.breakNoticeSeenV2[seenKey]=Date.now();
+    save();
+    const label=br.label||'Mola';
+    showBreakNotice(label,br.start,br.end);
+    break;
+  }
+}
+function testBreakNotification(){showBreakNotice('Test Mola','10:00','10:15');}
+function showBreakNotice(label,start,end){
+  if(document.getElementById('breakNoticeModal'))return;
+  startPersistentAlertSound('break','break');
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="breakNoticeModal"><div class="modal breakNotice" style="max-width:540px"><div class="modalTitleRow"><div><div class="modalKicker">⏰ MOLA BİLDİRİMİ</div><h3>${esc(label||'Mola')}</h3></div><span class="statusPill approved">BAŞLADI</span></div><div style="display:flex;gap:14px;align-items:center;margin-top:8px"><div class="breakIcon">☕</div><div style="font-size:18px;line-height:1.5;color:#24344d">Mola saatiniz başladı.<br><b>${esc(start||'')} – ${esc(end||'')}</b><br><span style="color:#5d6b80;font-size:14px">İyi istirahatler dileriz.</span></div></div><div class="actions"><button class="action blue" onclick="stopPersistentAlertSound('break');document.getElementById('breakNoticeModal')?.remove()">Tamam, gördüm</button></div></div></div>`);
+}
+function normalizeScheduleBreaks(raw){
+  const value=String(raw||'').trim(); if(!value)return [];
+  const out=[];
+  value.split(/[,;\n]+/).map(s=>s.trim()).filter(Boolean).forEach((part,i)=>{
+    const m=part.match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})(?:\s+(.+))?$/);
+    if(!m)return;
+    const norm=t=>{const [h,mi]=t.split(':').map(Number);return `${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`};
+    const start=norm(m[1]),end=norm(m[2]);
+    if(timeToMin(start)===null||timeToMin(end)===null||timeToMin(end)<=timeToMin(start))return;
+    out.push({start,end,label:(m[3]||`Mola ${i+1}`).trim()});
+  });
+  return out;
+}
+function manageWorkSchedule(){
+  if(db.user.role!=='admin')return;
+  const rows=WEEK_DAYS.map(([k,label])=>{const sc=db.workSchedule?.[k]||{enabled:false,start:'08:00',end:'18:00',breaks:[]};const breakText=(sc.breaks||[]).map(b=>`${b.start}-${b.end}${b.label?` ${b.label}`:''}`).join(', ');
+    return `<div class="workScheduleRow"><div class="dayCell"><div class="scheduleDay">${label}</div><div class="activeCell"><input id="ws_enabled_${k}" type="checkbox" ${sc.enabled?'checked':''}><label for="ws_enabled_${k}">Çalışma günü</label></div></div><div><input id="ws_start_${k}" type="time" value="${esc(sc.start||'08:00')}"></div><div><input id="ws_end_${k}" type="time" value="${esc(sc.end||'18:00')}"></div><div class="breakCell"><input id="ws_breaks_${k}" type="text" value="${esc(breakText)}" placeholder="Örn. 10:00-10:15 Mola 1, 12:00-13:00 Öğle Molası"><div class="breakHint">Molaları virgülle ayırabilirsin. Bildirim mola başlangıcında çıkar.</div></div></div>`}).join('');
+  const modalId='workScheduleModal';document.getElementById(modalId)?.remove();
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="${modalId}"><div class="modal" style="max-width:960px"><div class="modalTitleRow"><div><div class="modalKicker">İK / MESAİ</div><h3>Mesai Çizelgesi</h3><div style="color:#748096;font-size:12px">Mesai saatlerini ve mola başlangıçlarını Admin olarak düzenleyebilirsin.</div></div><span class="statusPill approved">TÜM PERSONEL</span></div><div class="scheduleCard"><div class="scheduleMeta"><b>Örnek:</b> 10:00-10:15 Mola 1, 12:00-13:00 Öğle Molası, 15:00-15:15 Mola 2</div></div><div class="workScheduleGrid"><div class="head">Gün</div><div class="head">Mesai Başlangıç</div><div class="head">Mesai Bitiş</div><div class="head">Molalar</div>${rows}</div><div class="actions"><button class="action gray" onclick="testBreakNotification()">Mola Bildirimi Test Et</button><button class="action gray" onclick="document.getElementById('${modalId}')?.remove()">Kapat</button><button class="action blue" onclick="saveWorkSchedule()">Mesai Çizelgesini Kaydet</button></div></div></div>`);
+}
+function saveWorkSchedule(){
+  if(db.user.role!=='admin')return;
+  WEEK_DAYS.forEach(([k])=>{const start=document.getElementById(`ws_start_${k}`)?.value||'08:00',end=document.getElementById(`ws_end_${k}`)?.value||'18:00',breaks=normalizeScheduleBreaks(document.getElementById(`ws_breaks_${k}`)?.value||''),enabled=!!document.getElementById(`ws_enabled_${k}`)?.checked;
+    if(timeToMin(end)<=timeToMin(start)){enabled=false;}
+    db.workSchedule[k]={enabled,start,end,breaks};
+  });
+  audit('schedule.updated','schedule','workSchedule','Mesai Çizelgesi','Haftalık mesai ve mola ayarları güncellendi.');save();document.getElementById('workScheduleModal')?.remove();alert('Mesai çizelgesi kaydedildi.');
+}
+function report(){
+  const today=new Date().toISOString().slice(0,10);
+  document.getElementById('app').innerHTML=header()+`<div class="wrap"><div class="toolbar"><div><h2>Termin Raporu</h2><div class="hint">Seçtiğin tarih aralığındaki tüm terminleri Excel olarak indirebilirsin.</div></div><button class="action gray" onclick="render()">Takvime dön</button></div><div class="adminBar" style="align-items:end"><div><label>BAŞLANGIÇ TARİHİ</label><input id="exportFrom" type="date" value="${today}"></div><div><label>BİTİŞ TARİHİ</label><input id="exportTo" type="date" value="${today}"></div><button class="action blue" onclick="exportExcel()">Excel'e Aktar</button></div><div class="adminBar" id="reportSummary"><div><label>TOPLAM TERMİN</label><b>—</b></div><div><label>ONAY</label><b style="color:#159653">—</b></div><div><label>RED</label><b style="color:#d33">—</b></div><div><label>BEKLEYEN</label><b>—</b></div><div><label>ULAŞILAMADI</label><b style="color:#5b6472">—</b></div></div><div class="adminBar" style="display:block"><div style="font-size:12px;color:#68758b">Excel dosyasında müşteri bilgileri, rota bilgileri, agent ve kontrol durumu dahil tüm termin alanları bulunur.</div></div></div>`;
+  document.getElementById('exportFrom').addEventListener('change',updateReportSummary);
+  document.getElementById('exportTo').addEventListener('change',updateReportSummary);
+  updateReportSummary();
+}
+function reportBookingDate(b){
+  const normalizeDate=(v)=>{if(!v)return '';const s=String(v).trim();if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;const m=s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);return m?`${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`:s;};
+  const slot=(b?.slotId&&db.slots.find(s=>s.id===b.slotId))||(b?.rejectedSlotId&&db.slots.find(s=>s.id===b.rejectedSlotId));
+  return normalizeDate(b?.routeDate||b?.date||b?.appointmentDate||b?.rejectedDate||slot?.date||'');
+}
+function updateReportSummary(){
+  const from=document.getElementById('exportFrom')?.value||'';
+  const to=document.getElementById('exportTo')?.value||'';
+  const box=document.getElementById('reportSummary');
+  if(!box||!from||!to||from>to)return;
+  const list=db.bookings.filter(b=>{const d=reportBookingDate(b);return d&&d>=from&&d<=to;});
+  box.innerHTML=`<div><label>TOPLAM TERMİN</label><b>${list.length}</b></div><div><label>ONAY</label><b style="color:#159653">${list.filter(b=>b.status==='approved').length}</b></div><div><label>RED</label><b style="color:#d33">${list.filter(b=>b.status==='rejected').length}</b></div><div><label>BEKLEYEN</label><b>${list.filter(b=>b.status==='pending').length}</b></div><div><label>ULAŞILAMADI</label><b style="color:#5b6472">${list.filter(b=>b.status==='unreachable').length}</b></div>`;
+}
+
+function exportExcel(){
+let from=document.getElementById('exportFrom')?.value||'',to=document.getElementById('exportTo')?.value||'';
+if(!from||!to)return alert('Lütfen başlangıç ve bitiş tarihlerini seç.');
+if(from>to)return alert('Başlangıç tarihi bitiş tarihinden sonra olamaz.');
+
+const value=(b,...keys)=>{
+  for(const k of keys){
+    if(b && b[k]!==undefined && b[k]!==null && String(b[k])!=='') return b[k];
+  }
+  return '';
+};
+const slotFor=(b)=>{
+  if(!b) return null;
+  return (b.slotId && db.slots.find(s=>s.id===b.slotId))
+      || (b.rejectedSlotId && db.slots.find(s=>s.id===b.rejectedSlotId))
+      || null;
+};
+const normalizeDate=(v)=>{
+  if(!v) return '';
+  const s=String(v).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m=s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if(m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+  return s;
+};
+
+const rows=db.bookings.map(b=>{
+  const slot=slotFor(b);
+  const date=normalizeDate(value(b,'routeDate','rejectedDate','date','appointmentDate') || slot?.date);
+  const time=value(b,'routeTime','rejectedTime','time','appointmentTime') || slot?.time || '';
+  const campaign=value(b,'routeCampaign','rejectedCampaign','campaign') || slot?.campaign || '';
+  return {date,time,campaign,b};
+}).filter(x=>x.date && x.date>=from && x.date<=to).map(x=>{
+  const b=x.b;
+  return {
+    'Tarih':x.date,
+    'Saat':x.time,
+    'Kampanya':x.campaign,
+    'Agent':value(b,'employeeName','employee'),
+    'Kunde Name':value(b,'kundeName'),
+    'Vorname':value(b,'vorname'),
+    'Alter':value(b,'alter'),
+    'Straße':value(b,'strasse'),
+    'PLZ':value(b,'plz'),
+    'Ort':value(b,'ort'),
+    'Festnetz':value(b,'festnetz'),
+    'Mobil':value(b,'mobil'),
+    'Entscheidungsträger':value(b,'entscheidungstraeger'),
+    'Gesprochen mit':value(b,'gesprochenMit'),
+    'Baujahr':value(b,'baujahr'),
+    'Teilnehmer':value(b,'teilnehmer'),
+    'Heizart':value(b,'heizart'),
+    'Heizungs-Baujahr':value(b,'heizBaujahr'),
+    'Frei / Reihenhaus':value(b,'freiReihenhaus'),
+    'Verbrauch':value(b,'verbrauch'),
+    'Vorlauftemperatur':value(b,'vorlauftemperatur'),
+    'Rohrsystem':value(b,'rohrsystem'),
+    'Beheizte Wohnfläche':value(b,'beheizteWohnflaeche'),
+    'Status':statusText(b.status),
+    'Kontrollnotiz':value(b,'controlNote')
+  };
+});
+
+if(!rows.length)return alert(`Seçtiğin tarih aralığında termin bulunamadı.\n${from} – ${to}`);
+
+const headers=Object.keys(rows[0]);
+if(typeof XLSX==='undefined'){
+  const csv='\ufeff'+headers.join(';')+'\n'+rows.map(r=>headers.map(h=>'"'+String(r[h]??'').replace(/"/g,'""')+'"').join(';')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Danke_Kalender_${from}_${to}.csv`;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);return;
+}
+const ws=XLSX.utils.json_to_sheet(rows);
+ws['!cols']=headers.map(h=>({wch:Math.min(Math.max(h.length+3,12),28)}));
+const wb=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb,ws,'Terminler');
+XLSX.writeFile(wb,`Danke_Kalender_${from}_${to}.xlsx`);
+}
+
+
+
+
+// ===== V59 HUMAN RESOURCES / PAYROLL OVERRIDES =====
+const HR_FILE_DB = 'dk_hr_files_v1';
+const HR_FILE_STORE = 'files';
+let hrFileDbPromise = null;
+function openHrFileDb(){
+  if(hrFileDbPromise) return hrFileDbPromise;
+  hrFileDbPromise = new Promise((resolve,reject)=>{
+    if(!window.indexedDB) return resolve(null);
+    const req=indexedDB.open(HR_FILE_DB,1);
+    req.onupgradeneeded=()=>{const dbi=req.result;if(!dbi.objectStoreNames.contains(HR_FILE_STORE))dbi.createObjectStore(HR_FILE_STORE,{keyPath:'id'});};
+    req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);
+  });
+  return hrFileDbPromise;
+}
+async function storeHrFile(id,file){const dbi=await openHrFileDb();if(!dbi)return false;return new Promise(resolve=>{const tx=dbi.transaction(HR_FILE_STORE,'readwrite');tx.objectStore(HR_FILE_STORE).put({id,name:file.name,type:file.type||'application/octet-stream',blob:file,createdAt:new Date().toISOString()});tx.oncomplete=()=>resolve(true);tx.onerror=()=>resolve(false);});}
+async function getHrFile(id){const dbi=await openHrFileDb();if(!dbi)return null;return new Promise(resolve=>{const tx=dbi.transaction(HR_FILE_STORE,'readonly');const req=tx.objectStore(HR_FILE_STORE).get(id);req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>resolve(null);});}
+async function deleteHrFile(id){const dbi=await openHrFileDb();if(!dbi)return;await new Promise(resolve=>{const tx=dbi.transaction(HR_FILE_STORE,'readwrite');tx.objectStore(HR_FILE_STORE).delete(id);tx.oncomplete=()=>resolve();tx.onerror=()=>resolve();});}
+
+function ensurePayrollData(){
+  (db.employees||[]).forEach(e=>{
+    e.payroll=e.payroll||{};
+    if(e.payroll.monthlySalary===undefined)e.payroll.monthlySalary=0;
+    if(e.payroll.dailyRate===undefined)e.payroll.dailyRate=0;
+    e.payroll.manualEarnedByMonth=e.payroll.manualEarnedByMonth&&typeof e.payroll.manualEarnedByMonth==='object'?e.payroll.manualEarnedByMonth:{};
+    e.payroll.manualModeByMonth=e.payroll.manualModeByMonth&&typeof e.payroll.manualModeByMonth==='object'?e.payroll.manualModeByMonth:{};
+    e.payroll.advances=Array.isArray(e.payroll.advances)?e.payroll.advances:[];
+    e.payroll.deductions=Array.isArray(e.payroll.deductions)?e.payroll.deductions:[];
+    e.payroll.bonuses=Array.isArray(e.payroll.bonuses)?e.payroll.bonuses:[];
+    e.payroll.absences=Array.isArray(e.payroll.absences)?e.payroll.absences:[];
+    e.payroll.notes=Array.isArray(e.payroll.notes)?e.payroll.notes:[];
+    e.payroll.notifications=Array.isArray(e.payroll.notifications)?e.payroll.notifications:[];
+    e.payroll.leaves=Array.isArray(e.payroll.leaves)?e.payroll.leaves:[];
+    e.payroll.records=Array.isArray(e.payroll.records)?e.payroll.records:[];
+    e.payroll.documents=Array.isArray(e.payroll.documents)?e.payroll.documents:[];
+  });
+}
+function currentMonthValue(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+function monthBounds(month){const [y,m]=String(month||currentMonthValue()).split('-').map(Number);const yy=y||new Date().getFullYear(),mm=(m||1)-1;const first=new Date(yy,mm,1),last=new Date(yy,mm+1,0);const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;return {from:iso(first),to:iso(last),label:first.toLocaleDateString('tr-TR',{month:'long',year:'numeric'})}}
+function money(v){return Number(v||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₺'}
+function payrollForUser(u){ensurePayrollData();return (db.employees||[]).find(e=>e.u===u)?.payroll||null}
+function payrollCalc(u,month=currentMonthValue()){
+  const e=(db.employees||[]).find(x=>x.u===u);if(!e)return null;ensurePayrollData();const p=e.payroll,mb=monthBounds(month),inRange=x=>x&&x.date>=mb.from&&x.date<=mb.to;
+  const advances=p.advances.filter(inRange),deductions=p.deductions.filter(inRange),bonuses=p.bonuses.filter(inRange),absences=p.absences.filter(inRange);
+  const monthly=Number(p.monthlySalary||0),daily=Number(p.dailyRate||0)>0?Number(p.dailyRate):monthly/30;
+  const absenceDays=absences.reduce((a,x)=>a+(Number(x.days)||0),0),absenceDeduction=absenceDays*daily;
+  const otherDeduction=deductions.reduce((a,x)=>a+(Number(x.amount)||0),0),bonusTotal=bonuses.reduce((a,x)=>a+(Number(x.amount)||0),0),advanceTotal=advances.reduce((a,x)=>a+(Number(x.amount)||0),0);
+  const autoEarned=monthly+bonusTotal-absenceDeduction-otherDeduction;
+  const manualMode=!!p.manualModeByMonth?.[month] && Object.prototype.hasOwnProperty.call(p.manualEarnedByMonth||{},month);
+  const earned=manualMode?Number(p.manualEarnedByMonth[month]||0):autoEarned;
+  const remaining=earned-advanceTotal;
+  return {e,month,mb,monthly,daily,absenceDays,absenceDeduction,otherDeduction,bonusTotal,advanceTotal,autoEarned,manualMode,earned,remaining,advances,deductions,bonuses,absences,leaves:p.leaves||[],records:p.records||[],documents:p.documents||[]};
+}
+function salarySelfSection(){
+  const r=payrollCalc(db.user.u,currentMonthValue())||{mb:monthBounds(currentMonthValue()),monthly:0,earned:0,advanceTotal:0,remaining:0,absenceDays:0,absenceDeduction:0,otherDeduction:0,bonusTotal:0};
+  return `<section class="hrSection"><div class="hrHead"><div><h3>💶 Maaşım</h3><div class="hrSub">${r.mb?.label||''} · Yalnızca sana ait bilgiler</div></div><button class="action gray" onclick="openMyPayroll()">Detayları Gör</button></div><div class="hrStats"><div class="hrStat"><label>AYLIK MAAŞ</label><b>${money(r.monthly)}</b></div><div class="hrStat green"><label>ANLIK HAKEDİŞ</label><b>${money(r.earned)}</b></div><div class="hrStat"><label>AVANS</label><b>${money(r.advanceTotal)}</b></div><div class="hrStat red"><label>KESİNTİ</label><b>${money((r.absenceDeduction||0)+(r.otherDeduction||0))}</b></div><div class="hrStat"><label>MAZERETSİZ GÜN</label><b>${Number(r.absenceDays||0)}</b></div><div class="hrStat green"><label>ÖDENECEK KALAN</label><b>${money(r.remaining)}</b></div></div></section>`;
+}
+function openMyPayroll(){ensurePayrollData();openPayrollViewer(db.user.u,currentMonthValue())}
+function openPayrollViewer(u,month=currentMonthValue()){
+  ensurePayrollData();const r=payrollCalc(u,month);if(!r)return;const p=r.e.payroll;const notices=(p.notifications||[]).slice().reverse().slice(0,8),notes=(p.notes||[]).slice().reverse().slice(0,8),userName=esc(r.e.name),canManage=db.user.role==='admin';
+  const leaveDays=(p.leaves||[]).filter(x=>x.from&&x.to).reduce((sum,x)=>sum+(Number(x.days)||0),0);
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="payrollViewer"><div class="modal payrollModal"><div class="modalTitleRow"><div><div class="modalKicker">MAAŞ ÖZETİ</div><h3>${userName} · ${esc(r.mb.label)}</h3></div><span class="statusPill approved">${money(r.remaining)}</span></div><div class="hrStats"><div class="hrStat"><label>Aylık maaş</label><b>${money(r.monthly)}</b></div><div class="hrStat green"><label>Anlık hakediş</label><b>${money(r.earned)}</b></div><div class="hrStat"><label>Avans</label><b>${money(r.advanceTotal)}</b></div><div class="hrStat red"><label>Kesinti</label><b>${money(r.absenceDeduction+r.otherDeduction)}</b></div><div class="hrStat"><label>Mazeretsiz gün</label><b>${r.absenceDays}</b></div><div class="hrStat green"><label>Ödenecek kalan</label><b>${money(r.remaining)}</b></div></div><div class="hrPanel"><h4>Hesaplama Özeti</h4><div class="hrHelp">${r.manualMode?'Bu dönem için hakediş Admin tarafından manuel belirlenmiştir.':'Bu dönem için hakediş otomatik hesaplanmıştır.'}</div><div class="hrHelp">Otomatik hesaplama: Aylık maaş + bonus − mazeretsiz gün kesintisi − diğer kesintiler.</div><div class="hrHelp">Ödenecek kalan = Anlık hakediş − Avans.</div>${r.leaves?.length?`<div class="hrHelp">Kayıtlı yıllık izin toplamı: <b>${leaveDays} gün</b></div>`:''}</div><div class="actions"><button class="action gray" onclick="document.getElementById('payrollViewer')?.remove()">Kapat</button>${canManage?`<button class="action blue" onclick="document.getElementById('payrollViewer')?.remove();openPayrollAdmin('${esc(u)}')">Yönet</button>`:''}</div></div></div>`);
+}
+function managePayrolls(month=currentMonthValue()){
+  if(db.user.role!=='admin')return;ensurePayrollData();const mb=monthBounds(month);const users=(db.employees||[]).map(e=>payrollCalc(e.u,month)).filter(Boolean).sort((a,b)=>b.remaining-a.remaining);
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="payrollList"><div class="modal payrollModal"><div class="modalTitleRow"><div><div class="modalKicker">İK / MAAŞ YÖNETİMİ</div><h3>Personel Maaşları</h3><div class="hrSub">${mb.label} · Agent ve Admin bazında maaş, avans, kesinti, prim, izin ve dosya yönetimi.</div></div></div><div class="adminBar payrollListFilters" style="margin-top:12px"><div><label>DÖNEM</label><input id="payrollListMonth" type="month" value="${esc(month)}" onchange="refreshPayrollList()"></div><div class="payrollSearchWrap"><label>PERSONEL ARA</label><input id="payrollListSearch" type="search" placeholder="Agent / admin adı veya kullanıcı adı..." oninput="refreshPayrollList()"></div></div><div id="payrollListBody">${users.map((r,i)=>payrollListRow(r,i)).join('')}</div><div class="actions"><button class="action gray" onclick="document.getElementById('payrollList')?.remove();render()">Kapat</button></div></div></div>`);
+}
+function payrollListRow(r,i){const role=r.e.role==='admin'?'Admin':'Agent';return `<div class="payrollPersonRow"><div class="payrollPersonHead"><div class="payrollPersonName"><b>${esc(r.e.name)}</b><div class="payrollPersonRole">${esc(r.e.u)} · ${role}</div></div><div class="payrollPersonActions"><button class="action gray" onclick="openPayrollAdmin('${esc(r.e.u)}')">Yönet</button></div></div><div class="payrollPersonStats"><div class="payrollPersonStat"><label>HAKEDİŞ</label><b>${money(r.earned)}</b></div><div class="payrollPersonStat"><label>AVANS</label><b>${money(r.advanceTotal)}</b></div><div class="payrollPersonStat"><label>KESİNTİ</label><b>${money(r.absenceDeduction+r.otherDeduction)}</b></div><div class="payrollPersonStat remaining"><label>KALAN</label><b>${money(r.remaining)}</b></div></div></div>`}
+function payrollSearchNorm(v){return String(v??'').trim().toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
+function refreshPayrollList(){const m=document.getElementById('payrollListMonth')?.value||currentMonthValue();const box=document.getElementById('payrollListBody');if(!box)return;ensurePayrollData();const q=payrollSearchNorm(document.getElementById('payrollListSearch')?.value||'');const users=(db.employees||[]).map(e=>payrollCalc(e.u,m)).filter(Boolean).filter(r=>{if(!q)return true;return payrollSearchNorm(r.e.name).includes(q)||payrollSearchNorm(r.e.u).includes(q)}).sort((a,b)=>b.remaining-a.remaining||b.earned-a.earned||String(a.e.name).localeCompare(String(b.e.name),'tr'));box.innerHTML=users.map((r,i)=>payrollListRow(r,i)).join('')||(q?'<div style="padding:14px;color:#748096">Bu aramada personel bulunamadı.</div>':'<div style="padding:14px;color:#748096">Kullanıcı bulunmuyor.</div>');}
+function openPayrollAdmin(u,month=currentMonthValue()){
+  if(db.user.role!=='admin')return;ensurePayrollData();const e=db.employees.find(x=>x.u===u);if(!e)return;const p=e.payroll,r=payrollCalc(u,month),manualVal=Object.prototype.hasOwnProperty.call(p.manualEarnedByMonth||{},month)?Number(p.manualEarnedByMonth[month]):r.autoEarned,manualOn=!!p.manualModeByMonth?.[month];
+  const entryRows=(type,rows,cols,empty)=>rows.length?rows.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(x=>`<tr><td>${esc(x.date||'')}</td>${cols.map(c=>`<td>${c==='amount'?money(x.amount):c==='days'?esc(x.days):esc(x.note||'')}</td>`).join('')}<td><button class="hrAction gray" onclick="editPayrollEntry('${esc(u)}','${type}','${esc(x.id)}')">Düzenle</button> <button class="hrAction red" onclick="deletePayrollEntry('${esc(u)}','${type}','${esc(x.id)}')">Sil</button></td></tr>`).join(''):empty;
+  const leaveRows=e.payroll.leaves.length?e.payroll.leaves.slice().sort((a,b)=>String(b.from).localeCompare(String(a.from))).map(x=>`<tr><td>${esc(x.from)}</td><td>${esc(x.to)}</td><td>${esc(x.days||'')}</td><td>${esc(x.status||'Planlandı')}</td><td>${esc(x.note||'')}${x.fileName?`<div class="hrHelp">📎 ${esc(x.fileName)}</div>`:'<div class="hrHelp">İmzalı evrak eklenmedi.</div>'}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="hrAction gray" onclick="editLeave('${esc(u)}','${esc(x.id)}')">Düzenle</button>${x.fileId?`<button class="hrAction blue" onclick="downloadLeaveFile('${esc(u)}','${esc(x.id)}')">Evrakı Aç</button>`:''}<button class="hrAction gray" onclick="document.getElementById('leaveFile-${esc(x.id)}')?.click()">${x.fileId?'Evrakı Değiştir':'Evrak Ekle'}</button>${x.fileId?`<button class="hrAction red" onclick="deleteLeaveFile('${esc(u)}','${esc(x.id)}')">Evrakı Sil</button>`:''}</div><input id="leaveFile-${esc(x.id)}" type="file" style="display:none" onchange="attachLeaveFile('${esc(u)}','${esc(x.id)}',this)"></td></tr>`).join(''):'<tr><td colspan="6" class="hrEmpty">Yıllık izin kaydı yok.</td></tr>';
+  const recordRows=e.payroll.records.length?e.payroll.records.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(x=>`<tr><td>${esc(x.date||'')}</td><td><span class="hrBadge">${esc(x.type||'Kayıt')}</span></td><td><b>${esc(x.title||'')}</b><div class="hrHelp">${esc(x.body||'')}</div>${x.fileName?`<div class="hrHelp">📎 ${esc(x.fileName)}</div>`:''}</td><td>${esc(x.byName||'')}</td><td><button class="hrAction gray" onclick="editHrRecord('${esc(u)}','${esc(x.id)}')">Düzenle</button> <button class="hrAction red" onclick="deleteHrRecord('${esc(u)}','${esc(x.id)}')">Sil</button></td></tr>`).join(''):'<tr><td colspan="5" class="hrEmpty">Tutanak / rapor kaydı yok.</td></tr>';
+  const docRows=e.payroll.documents.length?e.payroll.documents.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(x=>`<div class="fileRow"><div class="fileMeta"><div class="fileName">${esc(x.fileName)}</div><div class="fileSub">${esc(x.date||'')} · ${esc(x.type||'Dosya')} ${x.note?`· ${esc(x.note)}`:''}</div></div><div class="fileActions"><button class="hrAction blue" onclick="downloadHrDocument('${esc(u)}','${esc(x.id)}')">İndir</button><button class="hrAction red" onclick="deleteHrDocument('${esc(u)}','${esc(x.id)}')">Sil</button></div></div>`).join(''):'<div class="hrEmpty">Henüz dosya yüklenmedi.</div>';
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="payrollAdmin"><div class="modal payrollModal"><div class="modalTitleRow"><div><div class="modalKicker">İK / PERSONEL</div><h3>${esc(e.name)} · ${e.role==='admin'?'Admin':'Agent'}</h3><div class="hrSub">Maaş, anlık hakediş, avans, kesinti, prim, mazeretsiz gün, yıllık izin, tutanak, rapor, dosya ve özel bildirim yönetimi.</div></div></div><div class="hrPanel"><h4>Maaş ve Anlık Hakediş</h4><div class="hrGrid"><div><label>DÖNEM</label><input id="payMonth" type="month" value="${esc(month)}" onchange="refreshPayrollAdmin('${esc(u)}')"></div><div><label>AYLIK MAAŞ (₺)</label><input id="salaryMonthly" type="number" step="0.01" min="0" value="${Number(p.monthlySalary||0)}"></div><div><label>GÜNLÜK KESİNTİ (₺)</label><input id="salaryDaily" type="number" step="0.01" min="0" value="${Number(p.dailyRate||0)}"></div><div><label>ANLIK HAKEDİŞ (₺)</label><input id="manualEarned" type="number" step="0.01" min="0" value="${manualVal}"></div><div class="full"><div class="manualEarnedBox"><input id="manualMode" type="checkbox" ${manualOn?'checked':''}><span>Bu dönem için <b>anlık hakedişi manuel olarak</b> kullan. İşaretli değilse sistem otomatik hesaplar.</span></div></div><div class="full"><div class="hrHelp">Otomatik hakediş: ${money(r.autoEarned)} · ${manualOn?`Manuel hakediş: ${money(manualVal)}`:'Şu an otomatik hesaplama kullanılıyor.'}</div></div></div><div class="hrActions"><button class="hrAction blue" onclick="savePayrollSettings('${esc(u)}')">Maaş / Hakediş Kaydet</button></div></div><div class="hrStats" id="payrollAdminSummary"><div class="hrStat"><label>AYLIK MAAŞ</label><b>${money(r.monthly)}</b></div><div class="hrStat green"><label>ANLIK HAKEDİŞ</label><b>${money(r.earned)}</b></div><div class="hrStat"><label>AVANS</label><b>${money(r.advanceTotal)}</b></div><div class="hrStat red"><label>TOPLAM KESİNTİ</label><b>${money(r.absenceDeduction+r.otherDeduction)}</b></div><div class="hrStat"><label>MAZERETSİZ GÜN</label><b>${r.absenceDays}</b></div><div class="hrStat green"><label>ÖDENECEK KALAN</label><b>${money(r.remaining)}</b></div></div>
+  <div class="hrPanel"><h4>Avans Ekle</h4><div class="hrGrid"><div><label>TARİH</label><input id="advDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div><label>TUTAR (₺)</label><input id="advAmount" type="number" step="0.01" min="0"></div><div class="full"><label>NOT</label><input id="advNote" placeholder="Örn. 500 ₺ avans"></div></div><div class="hrActions"><button class="hrAction blue" onclick="addPayrollEntry('${esc(u)}','advance')">Avans Kaydet</button></div></div>
+  <div class="hrPanel"><h4>Mazeretsiz Gün Ekle</h4><div class="hrGrid"><div><label>TARİH</label><input id="absDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div><label>GÜN</label><input id="absDays" type="number" step="0.5" min="0.5" value="1"></div><div class="full"><label>NOT</label><input id="absNote" placeholder="Örn. mazeretsiz devamsızlık"></div></div><div class="hrActions"><button class="hrAction blue" onclick="addPayrollEntry('${esc(u)}','absence')">Günü Kaydet</button></div><div class="hrTableWrap"><table class="hrTable"><thead><tr><th>Tarih</th><th>Gün</th><th>Not</th><th></th></tr></thead><tbody>${entryRows('absence',r.absences,['days','note'],'<tr><td colspan="4" class="hrEmpty">Mazeretsiz gün kaydı yok.</td></tr>')}</tbody></table></div></div>
+  <div class="hrPanel"><h4>Ek Ödeme / Prim</h4><div class="hrGrid"><div><label>TARİH</label><input id="bonDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div><label>TUTAR (₺)</label><input id="bonAmount" type="number" step="0.01" min="0"></div><div class="full"><label>NOT</label><input id="bonNote" placeholder="Örn. prim / bonus"></div></div><div class="hrActions"><button class="hrAction green" onclick="addPayrollEntry('${esc(u)}','bonus')">Ek Ödeme Kaydet</button></div><div class="hrTableWrap"><table class="hrTable"><thead><tr><th>Tarih</th><th>Tutar</th><th>Not</th><th></th></tr></thead><tbody>${entryRows('bonus',r.bonuses,['amount','note'],'<tr><td colspan="4" class="hrEmpty">Ek ödeme kaydı yok.</td></tr>')}</tbody></table></div></div>
+  <div class="hrPanel"><h4>Yıllık İzin</h4><div class="hrGrid"><div><label>BAŞLANGIÇ</label><input id="leaveFrom" type="date"></div><div><label>BİTİŞ</label><input id="leaveTo" type="date"></div><div><label>GÜN</label><input id="leaveDays" type="number" step="0.5" min="0.5" value="1"></div><div><label>DURUM</label><select id="leaveStatus"><option>Planlandı</option><option>Onaylandı</option><option>Kullanıldı</option><option>İptal</option></select></div><div class="full"><label>NOT</label><input id="leaveNote" placeholder="Örn. yıllık izin"></div><div class="full"><label>İMZALI YILLIK İZİN EVRAKI</label><input id="leaveFile" type="file"><div class="hrHelp">Personelin imzaladığı yıllık izin belgesini PDF, Word veya görsel olarak ekleyebilirsin.</div></div></div><div class="hrActions"><button class="hrAction blue" onclick="addLeave('${esc(u)}')">İzin Kaydet</button></div><div class="hrTableWrap"><table class="hrTable"><thead><tr><th>Başlangıç</th><th>Bitiş</th><th>Gün</th><th>Durum</th><th>Not / Evrak</th><th></th></tr></thead><tbody>${leaveRows}</tbody></table></div></div>
+  <div class="hrPanel"><h4>Tutanak / Rapor Kaydı</h4><div class="hrGrid"><div><label>TARİH</label><input id="recDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div><label>TÜR</label><select id="recType"><option>Tutanak</option><option>Rapor</option><option>Uyarı</option><option>Diğer</option></select></div><div class="full"><label>BAŞLIK</label><input id="recTitle" placeholder="Örn. Geç kalma tutanağı"></div><div class="full"><label>AÇIKLAMA</label><textarea id="recBody" rows="3" placeholder="Detaylar..."></textarea></div><div class="full"><label>İLİŞİK DOSYA (opsiyonel)</label><input id="recFile" type="file"><div class="hrHelp">PDF, Word, Excel, görsel vb. dosyaları ekleyebilirsin.</div></div></div><div class="hrActions"><button class="hrAction blue" onclick="addHrRecord('${esc(u)}')">Kayıt Ekle</button></div><div class="hrTableWrap"><table class="hrTable"><thead><tr><th>Tarih</th><th>Tür</th><th>Kayıt</th><th>Ekleyen</th><th></th></tr></thead><tbody>${recordRows}</tbody></table></div></div>
+  <div class="hrPanel"><h4>Personel Dosyaları</h4><div class="hrGrid"><div><label>TÜR</label><select id="docType"><option>Tutanak</option><option>Rapor</option><option>Yıllık İzin</option><option>Sözleşme</option><option>Diğer</option></select></div><div><label>TARİH</label><input id="docDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div class="full"><label>NOT</label><input id="docNote" placeholder="Dosya hakkında kısa not"></div><div class="full"><label>DOSYA</label><input id="docFile" type="file"></div></div><div class="hrActions"><button class="hrAction blue" onclick="addHrDocument('${esc(u)}')">Dosyayı Kaydet</button></div><div style="margin-top:8px">${docRows}</div></div>
+  <div class="hrPanel"><h4>Personel Notu</h4><div class="hrGrid"><div class="full"><label>NOT</label><textarea id="hrNoteBody" rows="4" placeholder="Yalnızca adminlerin göreceği personel notu..."></textarea></div></div><div class="hrActions"><button class="hrAction gray" onclick="addPayrollNote('${esc(u)}')">Notu Kaydet</button></div></div>
+  <div class="hrPanel"><h4>Özel Bildirim Gönder</h4><div class="hrGrid"><div class="full"><label>BAŞLIK</label><input id="privTitle" placeholder="Örn. Maaş / avans bilgilendirmesi"></div><div class="full"><label>MESAJ</label><textarea id="privBody" rows="4" placeholder="Bu kullanıcıya özel bildirim..."></textarea></div></div><div class="hrActions"><button class="hrAction blue" onclick="sendPrivateNotification('${esc(u)}')">Bildirimi Gönder</button></div></div>
+  <div class="actions"><button class="action gray" onclick="document.getElementById('payrollAdmin')?.remove();render()">Kapat</button><button class="action blue" onclick="openPayrollViewer('${esc(u)}',document.getElementById('payMonth')?.value||'${esc(month)}')">Personel Görünümünü Aç</button></div>
+  </div></div>`);
+}
+function refreshPayrollAdmin(u){const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+function savePayrollSettings(u){
+  if(db.user.role!=='admin')return;ensurePayrollData();const e=db.employees.find(x=>x.u===u);if(!e)return;const m=document.getElementById('payMonth')?.value||currentMonthValue(),monthly=Number(document.getElementById('salaryMonthly')?.value||0),daily=Number(document.getElementById('salaryDaily')?.value||0),manualOn=!!document.getElementById('manualMode')?.checked,manual=Number(document.getElementById('manualEarned')?.value||0);e.payroll.monthlySalary=monthly;e.payroll.dailyRate=daily;e.payroll.manualModeByMonth[m]=manualOn;if(manualOn)e.payroll.manualEarnedByMonth[m]=manual;else delete e.payroll.manualEarnedByMonth[m];save();alert('Maaş ve hakediş ayarları kaydedildi.');document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)
+}
+function addPayrollEntry(u,type){
+  if(db.user.role!=='admin')return;ensurePayrollData();const e=db.employees.find(x=>x.u===u);if(!e)return;let date,amount,note,days;
+  if(type==='advance'){date=document.getElementById('advDate')?.value;amount=Number(document.getElementById('advAmount')?.value||0);note=(document.getElementById('advNote')?.value||'').trim();if(!date||amount<=0)return alert('Avans tarihi ve tutarı gir.');e.payroll.advances.push({id:crypto.randomUUID(),date,amount,note,createdAt:new Date().toISOString()})}
+  if(type==='deduction'){date=document.getElementById('dedDate')?.value;amount=Number(document.getElementById('dedAmount')?.value||0);note=(document.getElementById('dedNote')?.value||'').trim();if(!date||amount<=0)return alert('Kesinti tarihi ve tutarı gir.');e.payroll.deductions.push({id:crypto.randomUUID(),date,amount,note,createdAt:new Date().toISOString()})}
+  if(type==='absence'){date=document.getElementById('absDate')?.value;days=Number(document.getElementById('absDays')?.value||0);note=(document.getElementById('absNote')?.value||'').trim();if(!date||days<=0)return alert('Mazeretsiz gün tarihi ve gün sayısı gir.');e.payroll.absences.push({id:crypto.randomUUID(),date,days,note,createdAt:new Date().toISOString()})}
+  if(type==='bonus'){date=document.getElementById('bonDate')?.value;amount=Number(document.getElementById('bonAmount')?.value||0);note=(document.getElementById('bonNote')?.value||'').trim();if(!date||amount<=0)return alert('Ek ödeme tarihi ve tutarı gir.');e.payroll.bonuses.push({id:crypto.randomUUID(),date,amount,note,createdAt:new Date().toISOString()})}
+  save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)
+}
+function editPayrollEntry(u,type,id){
+  if(db.user.role!=='admin')return;ensurePayrollData();const e=db.employees.find(x=>x.u===u),arr=e?.payroll?.[type==='advance'?'advances':type==='deduction'?'deductions':type==='absence'?'absences':'bonuses'];const x=arr?.find(v=>v.id===id);if(!x)return;
+  const date=prompt('Tarih (YYYY-AA-GG):',x.date||'');if(date===null)return;let amount=x.amount,days=x.days,note=prompt('Not:',x.note||'');if(note===null)return;
+  if(type==='absence'){days=Number(prompt('Gün sayısı:',x.days||1));if(!(days>0))return alert('Gün sayısı geçersiz.');x.days=days}else{amount=Number(prompt('Tutar (₺):',x.amount||0));if(!(amount>0))return alert('Tutar geçersiz.');x.amount=amount}x.date=date;x.note=note.trim();save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)
+}
+function deletePayrollEntry(u,type,id){if(db.user.role!=='admin'||!confirm('Bu kaydı silmek istediğine emin misin?'))return;const e=db.employees.find(x=>x.u===u),key=type==='advance'?'advances':type==='deduction'?'deductions':type==='absence'?'absences':'bonuses';e.payroll[key]=(e.payroll[key]||[]).filter(x=>x.id!==id);save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+async function addLeave(u){if(db.user.role!=='admin')return;const e=db.employees.find(x=>x.u===u);if(!e)return;const from=document.getElementById('leaveFrom')?.value,to=document.getElementById('leaveTo')?.value,days=Number(document.getElementById('leaveDays')?.value||0),status=document.getElementById('leaveStatus')?.value||'Planlandı',note=(document.getElementById('leaveNote')?.value||'').trim(),file=document.getElementById('leaveFile')?.files?.[0];if(!from||!to||from>to||days<=0)return alert('Yıllık izin tarihlerini ve gün sayısını doğru gir.');const leave={id:crypto.randomUUID(),from,to,days,status,note,createdAt:new Date().toISOString()};if(file){const ok=await storeHrFile(leave.id,file);if(!ok)return alert('Yıllık izin evrakı kaydedilemedi. Tarayıcı depolama desteğini kontrol et.');leave.fileId=leave.id;leave.fileName=file.name;leave.fileType=file.type||'';leave.fileSize=file.size||0;}e.payroll.leaves.push(leave);save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+function editLeave(u,id){if(db.user.role!=='admin')return;const e=db.employees.find(x=>x.u===u),x=e?.payroll?.leaves?.find(v=>v.id===id);if(!x)return;const from=prompt('Başlangıç tarihi (YYYY-AA-GG):',x.from);if(from===null)return;const to=prompt('Bitiş tarihi (YYYY-AA-GG):',x.to);if(to===null)return;const days=Number(prompt('Gün sayısı:',x.days||1));if(!(days>0)||from>to)return alert('İzin bilgileri geçersiz.');const status=prompt('Durum:',x.status||'Planlandı');if(status===null)return;const note=prompt('Not:',x.note||'');if(note===null)return;Object.assign(x,{from,to,days,status:status.trim()||'Planlandı',note:note.trim()});save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+async function attachLeaveFile(u,id,input){if(db.user.role!=='admin')return;const file=input?.files?.[0];if(!file)return;const e=db.employees.find(x=>x.u===u),x=e?.payroll?.leaves?.find(v=>v.id===id);if(!x)return;if(x.fileId)await deleteHrFile(x.fileId);const ok=await storeHrFile(id,file);if(!ok)return alert('Yıllık izin evrakı kaydedilemedi.');Object.assign(x,{fileId:id,fileName:file.name,fileType:file.type||'',fileSize:file.size||0});save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+async function downloadLeaveFile(u,id){const e=db.employees.find(x=>x.u===u),x=e?.payroll?.leaves?.find(v=>v.id===id);if(!x?.fileId)return;const rec=await getHrFile(x.fileId);if(!rec)return alert('Yıllık izin evrakı bulunamadı.');const url=URL.createObjectURL(rec.blob);const a=document.createElement('a');a.href=url;a.target='_blank';a.download=x.fileName||rec.name||'yillik-izin-evraki';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
+async function deleteLeaveFile(u,id){if(db.user.role!=='admin'||!confirm('Bu yıllık izin evrakını silmek istediğine emin misin?'))return;const e=db.employees.find(x=>x.u===u),x=e?.payroll?.leaves?.find(v=>v.id===id);if(!x?.fileId)return;await deleteHrFile(x.fileId);delete x.fileId;delete x.fileName;delete x.fileType;delete x.fileSize;save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+async function deleteLeave(u,id){if(db.user.role!=='admin'||!confirm('Bu izin kaydını silmek istediğine emin misin?'))return;const e=db.employees.find(x=>x.u===u),leave=(e?.payroll?.leaves||[]).find(x=>x.id===id);if(leave?.fileId)await deleteHrFile(leave.fileId);e.payroll.leaves=(e.payroll.leaves||[]).filter(x=>x.id!==id);save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+function addHrRecord(u){
+  if(db.user.role!=='admin')return;const e=db.employees.find(x=>x.u===u);if(!e)return;const date=document.getElementById('recDate')?.value,type=document.getElementById('recType')?.value,title=(document.getElementById('recTitle')?.value||'').trim(),body=(document.getElementById('recBody')?.value||'').trim(),file=document.getElementById('recFile')?.files?.[0];if(!date||!title)return alert('Tarih ve başlık gir.');const recId=crypto.randomUUID();const finalize=async()=>{let fileMeta=null;if(file){const fileId=crypto.randomUUID();await storeHrFile(fileId,file);fileMeta={fileId,fileName:file.name,fileType:file.type||'',fileSize:file.size||0};}e.payroll.records.push({id:recId,date,type,title,body,byName:db.user.name,createdAt:new Date().toISOString(),...fileMeta});save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)};finalize();
+}
+function editHrRecord(u,id){if(db.user.role!=='admin')return;const e=db.employees.find(x=>x.u===u),x=e?.payroll?.records?.find(v=>v.id===id);if(!x)return;const title=prompt('Başlık:',x.title||'');if(title===null)return;const body=prompt('Açıklama:',x.body||'');if(body===null)return;const type=prompt('Tür:',x.type||'Tutanak');if(type===null)return;x.title=title.trim();x.body=body.trim();x.type=type.trim()||'Tutanak';save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+async function deleteHrRecord(u,id){if(db.user.role!=='admin'||!confirm('Bu tutanak/rapor kaydını silmek istediğine emin misin?'))return;const e=db.employees.find(x=>x.u===u),x=e?.payroll?.records?.find(v=>v.id===id);if(x?.fileId)await deleteHrFile(x.fileId);e.payroll.records=(e.payroll.records||[]).filter(v=>v.id!==id);save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+async function addHrDocument(u){if(db.user.role!=='admin')return;const e=db.employees.find(x=>x.u===u);if(!e)return;const file=document.getElementById('docFile')?.files?.[0];if(!file)return alert('Bir dosya seç.');const type=document.getElementById('docType')?.value||'Diğer',date=document.getElementById('docDate')?.value||new Date().toISOString().slice(0,10),note=(document.getElementById('docNote')?.value||'').trim(),id=crypto.randomUUID();const ok=await storeHrFile(id,file);if(!ok)return alert('Dosya kaydedilemedi. Tarayıcının IndexedDB desteğini kontrol et.');e.payroll.documents.push({id,fileName:file.name,fileType:file.type||'',fileSize:file.size||0,type,date,note,createdAt:new Date().toISOString(),byName:db.user.name});save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+async function downloadHrDocument(u,id){const e=db.employees.find(x=>x.u===u),x=e?.payroll?.documents?.find(v=>v.id===id);if(!x)return;const rec=await getHrFile(x.id);if(!rec)return alert('Dosya bulunamadı.');const url=URL.createObjectURL(rec.blob);const a=document.createElement('a');a.href=url;a.download=x.fileName||rec.name||'dosya';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
+async function deleteHrDocument(u,id){if(db.user.role!=='admin'||!confirm('Bu dosyayı silmek istediğine emin misin?'))return;const e=db.employees.find(x=>x.u===u),x=e?.payroll?.documents?.find(v=>v.id===id);if(x)await deleteHrFile(x.id);e.payroll.documents=(e.payroll.documents||[]).filter(v=>v.id!==id);save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+function addPayrollNote(u){if(db.user.role!=='admin')return;ensurePayrollData();const e=db.employees.find(x=>x.u===u);if(!e)return;const body=(document.getElementById('hrNoteBody')?.value||'').trim();if(!body)return alert('Notu yaz.');e.payroll.notes.push({id:crypto.randomUUID(),title:'Personel Notu',body,date:new Date().toISOString().slice(0,10),byName:db.user.name});save();const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+function sendPrivateNotification(u){if(db.user.role!=='admin')return;ensurePayrollData();const e=db.employees.find(x=>x.u===u);if(!e)return;const title=(document.getElementById('privTitle')?.value||'').trim(),body=(document.getElementById('privBody')?.value||'').trim();if(!title||!body)return alert('Bildirim başlığı ve mesajı doldur.');e.payroll.notifications.push({id:crypto.randomUUID(),title,body,createdAt:new Date().toISOString(),by:db.user.u,byName:db.user.name,read:false});save();alert('Özel bildirim gönderildi.');const m=document.getElementById('payMonth')?.value||currentMonthValue();document.getElementById('payrollAdmin')?.remove();openPayrollAdmin(u,m)}
+function showUnreadPrivateNotifications(){if(!db.user)return;ensurePayrollData();const e=db.employees.find(x=>x.u===db.user.u);if(!e)return;const list=(e.payroll.notifications||[]).filter(n=>!n.read);if(!list.length){stopPersistentAlertSound();return;}const n=list[0];document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="privateNoticeModal"><div class="modal" style="max-width:560px"><div class="modalTitleRow"><div><div class="modalKicker">⚠️ PERSONEL BİLDİRİMİ</div><h3>${esc(n.title)}</h3></div><span class="statusPill pending">İKAZ</span></div><div style="font-size:15px;line-height:1.6;color:#24344d;white-space:pre-wrap;margin-top:10px">${esc(n.body)}</div><div class="payrollMini" style="margin-top:12px">${new Date(n.createdAt).toLocaleString('tr-TR')}</div><div class="actions"><button class="action blue" onclick="ackPrivateNotification('${n.id}')">✓ Gördüm / Onaylıyorum</button></div></div></div>`);startPersistentAlertSound('private','priv:'+n.id)}
+function ackPrivateNotification(id){if(!db.user)return;ensurePayrollData();const e=db.employees.find(x=>x.u===db.user.u),n=(e?.payroll.notifications||[]).find(x=>x.id===id);if(n)n.read=true;save();stopPersistentAlertSound('priv:'+id);document.getElementById('privateNoticeModal')?.remove();setTimeout(showUnreadPrivateNotifications,30)}
+
+
+function unreadMessageCount(){
+  if(!db.user)return 0;
+  db.messages=Array.isArray(db.messages)?db.messages:[];
+  return db.messages.filter(m=>m.to===db.user.u && !m.read).length;
+}
+function messageParticipants(){
+  return (db.employees||[]).filter(e=>e.u!==db.user.u).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'tr'));
+}
+function markConversationRead(otherU){
+  if(!db.user||!otherU)return;
+  db.messages=Array.isArray(db.messages)?db.messages:[];
+  let changed=false;
+  db.messages.forEach(m=>{if(m.from===otherU&&m.to===db.user.u&&!m.read){m.read=true;changed=true;}});
+  if(changed)save();
+}
+async function openMessages(otherU=''){
+  if(!db.user)return;
+  if(String(dkPersistentAlertToken||'').startsWith('msg:'))stopPersistentAlertSound();
+  await syncOnlineCommunication();
+  const people=messageParticipants(),selected=otherU||people[0]?.u||'',modalId='messagesModal';
+  document.getElementById(modalId)?.remove();
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="${modalId}"><div class="modal" style="max-width:900px"><div class="modalTitleRow"><div><div class="modalKicker">DAHİLİ İLETİŞİM</div><h3>Mesajlar</h3><div style="color:#748096;font-size:12px">Agent ve Adminler birbirlerine özel mesaj gönderebilir.</div></div><span class="statusPill ${unreadMessageCount()?'pending':'approved'}">${unreadMessageCount()?'YENİ MESAJ':'MESAJLAR'}</span></div><div class="messageLayout" style="margin-top:14px"><div class="messagePeople" id="messagePeople">${people.map(p=>{const unread=db.messages.filter(m=>m.from===p.u&&m.to===db.user.u&&!m.read).length;return `<div class="messagePerson ${p.u===selected?'active':''}" onclick="selectMessagePerson('${esc(p.u)}')"><b>${esc(p.name)} ${unread?`<span class="unreadDot">${unread}</span>`:''}</b><small>${p.role==='admin'?'Admin':'Agent'} · ${esc(p.u)}</small></div>`}).join('')||'<div style="padding:18px;color:#748096">Mesaj gönderebileceğin başka kullanıcı yok.</div>'}</div><div class="messageChat" id="messageChat">${renderMessageChat(selected)}</div></div><div class="actions"><button class="action gray" onclick="document.getElementById('${modalId}')?.remove();render()">Kapat</button></div></div></div>`);
+  await markMessagesRead(selected);
+  const t=document.getElementById('messageThread');if(t)t.scrollTop=t.scrollHeight;
+}
+function renderMessageChat(otherU){
+  if(!otherU)return '<div class="messageEmpty">Soldan bir kullanıcı seç.</div>';
+  const other=(db.employees||[]).find(e=>e.u===otherU);
+  if(!other)return '<div class="messageEmpty">Kullanıcı bulunamadı.</div>';
+  markConversationRead(otherU);
+  const list=(db.messages||[]).filter(m=>(m.from===db.user.u&&m.to===otherU)||(m.from===otherU&&m.to===db.user.u)).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));
+  const bubbles=list.map(m=>`<div class="messageBubble ${m.from===db.user.u?'out':'in'}"><div style="white-space:pre-wrap">${esc(m.body)}</div><div class="messageMeta">${m.from===db.user.u?'Sen':esc(other.name)} · ${new Date(m.createdAt).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`).join('')||'<div class="messageEmpty">Henüz mesaj yok.<br>İlk mesajı sen gönder.</div>';
+  return `<div class="messageChatHead">${esc(other.name)} <span style="font-size:11px;color:#7a8799;font-weight:500">· ${other.role==='admin'?'Admin':'Agent'}</span></div><div class="messageThread" id="messageThread">${bubbles}</div><div class="messageComposer"><textarea id="messageBody" placeholder="Mesajınızı yazın..." onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter')sendInternalMessage('${esc(otherU)}')"></textarea><button class="action blue" onclick="sendInternalMessage('${esc(otherU)}')">Gönder</button></div>`;
+}
+async function selectMessagePerson(otherU){
+  const box=document.getElementById('messageChat');if(!box)return;
+  document.querySelectorAll('#messagePeople .messagePerson').forEach(el=>el.classList.remove('active'));
+  [...document.querySelectorAll('#messagePeople .messagePerson')].find(el=>el.getAttribute('onclick')?.includes(`'${otherU}'`))?.classList.add('active');
+  box.innerHTML=renderMessageChat(otherU);
+  await markMessagesRead(otherU);
+  await syncOnlineCommunication();
+  box.innerHTML=renderMessageChat(otherU);
+  setTimeout(()=>{const t=document.getElementById('messageThread');if(t)t.scrollTop=t.scrollHeight;},0);
+}
+async function sendInternalMessage(otherU){
+  if(!db.user||!otherU)return;
+  const body=(document.getElementById('messageBody')?.value||'').trim();
+  if(!body)return alert('Mesajınızı yazın.');
+  const other=(db.employees||[]).find(e=>e.u===otherU);
+  if(!other?.authId)return alert('Alıcı kullanıcı bulunamadı.');
+  try{
+    const now=new Date().toISOString();
+    const {data:row,error}=await dkSupabase.from('messages').insert({
+      sender_id:db.user.authId,
+      receiver_id:other.authId,
+      body,
+      read_at:null,
+      created_at:now
+    }).select('*').single();
+    if(error)throw error;
+    audit('message.sent','message',row?.id||crypto.randomUUID(),other.name||otherU,`Mesaj gönderildi: ${other.name||otherU}`);
+    await syncOnlineCommunication();
+    await selectMessagePerson(otherU);
+  }catch(e){alert(`Mesaj gönderilemedi: ${e.message||e}`);}
+}
+async function dismissInternalMessage(id, openAfter=false, otherU=''){
+  if(!db.user)return;
+  const msg=(db.messages||[]).find(m=>String(m.id)===String(id));
+  stopPersistentAlertSound('msg:'+id);
+  document.getElementById('messageNoticeModal')?.remove();
+  if(msg){
+    msg.read=true;
+    msg.readAt=new Date().toISOString();
+  }
+  save();
+  try{
+    const r=await dkSupabase.from('messages').update({read_at:new Date().toISOString()}).eq('id',id).eq('receiver_id',db.user.authId).is('read_at',null);
+    if(r.error)console.warn('Mesaj okundu işaretlenemedi:',r.error);
+    else if(dkCommunicationReady)await syncOnlineCommunication({renderAfter:false});
+  }catch(e){ console.warn('Mesaj kapatma/okundu işlemi:',e); }
+  if(openAfter && otherU){
+    await openMessages(otherU);
+  }
+}
+
+function showUnreadInternalMessageNotice(){
+  if(!db.user)return;
+  db.messages=Array.isArray(db.messages)?db.messages:[];
+  const unread=db.messages.filter(m=>m.to===db.user.u&&!m.read);
+  if(!unread.length)return;
+  const m=unread[0], sender=(db.employees||[]).find(e=>e.u===m.from);
+  if(document.getElementById('privateNoticeModal')||document.getElementById('messageNoticeModal'))return;
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="messageNoticeModal"><div class="modal" style="max-width:560px"><div class="modalTitleRow"><div><div class="modalKicker">✉️ YENİ MESAJ</div><h3>${esc(sender?.name||m.from)}</h3></div><span class="statusPill pending">MESAJ</span></div><div style="font-size:15px;line-height:1.6;color:#24344d;white-space:pre-wrap;margin-top:10px">${esc(m.body)}</div><div class="payrollMini" style="margin-top:12px">${new Date(m.createdAt).toLocaleString('tr-TR')}</div><div class="actions"><button class="action gray" onclick="dismissInternalMessage('${esc(m.id)}',false,'')">Kapat</button><button class="action blue" onclick="dismissInternalMessage('${esc(m.id)}',true,'${esc(m.from)}')">Mesajı Aç</button></div></div></div>`);
+  startPersistentAlertSound('message','msg:'+m.id);
+}
+
+function shiftDay(delta){let d=new Date(viewDate+'T12:00:00');d.setDate(d.getDate()+delta);viewDate=d.toISOString().slice(0,10);render()}
+
+/* =========================================================
+   V93: ONLINE MESAJ + DUYURU (ADMIN DAHİL)
+   Mesajlar ve duyurular Supabase ortak veritabanından okunur/yazılır.
+   ========================================================= */
+let dkCommunicationBusy=false,dkCommunicationReady=false,dkCommunicationChannel=null;
+function dkPick(o,ks,f=''){if(!o||typeof o!=='object')return f;for(const k of ks)if(o[k]!==undefined&&o[k]!==null)return o[k];return f;}
+function dkBool(v,f=false){if(typeof v==='boolean')return v;if(v===1||v==='1'||v==='true')return true;if(v===0||v==='0'||v==='false')return false;return f;}
+function dkMessageToLocal(m){const si=dkPick(m,['sender_id','from_id','from_user_id','sender']),ri=dkPick(m,['receiver_id','recipient_id','to_id','to_user_id','recipient']),sp=(db.employees||[]).find(e=>e.authId===si||e.u===si),rp=(db.employees||[]).find(e=>e.authId===ri||e.u===ri);const readAt=dkPick(m,['read_at'],null);return{id:m.id,from:sp?.u||si||dkPick(m,['from'],''),to:rp?.u||ri||dkPick(m,['to'],''),fromAuthId:si,toAuthId:ri,body:String(dkPick(m,['body','message','content'],'')||''),createdAt:dkPick(m,['created_at','createdAt'],new Date().toISOString()),read:readAt?true:dkBool(dkPick(m,['is_read','read','acknowledged'],false))};}
+function dkAnnouncementToLocal(a,acks){const byId=dkPick(a,['created_by','author_id','sender_id','by_id','user_id']),author=(db.employees||[]).find(e=>e.authId===byId||e.u===byId),reads=(acks||[]).filter(x=>String(dkPick(x,['announcement_id','ann_id']))===String(a.id)).map(x=>dkPick(x,['user_id','ack_user_id','profile_id'])).filter(Boolean).map(uid=>{const p=(db.employees||[]).find(e=>e.authId===uid||e.u===uid);return p?.u||uid;});return{id:a.id,title:String(dkPick(a,['title','name'],'')||''),body:String(dkPick(a,['body','message','content'],'')||''),createdAt:dkPick(a,['created_at','createdAt'],new Date().toISOString()),by:author?.u||byId||dkPick(a,['by'],'admin'),byAuthId:byId||'',reads};}
+async function dkTryInsert(table,candidates){let last=null;for(const payload of candidates){const r=await dkSupabase.from(table).insert(payload).select('*').single();if(!r.error)return r.data;last=r.error;const msg=String(r.error.message||'').toLowerCase();if(!/column|schema cache|does not exist|could not find|unknown/.test(msg))break;}throw last||new Error(table+' kaydı oluşturulamadı.');}
+async function syncOnlineCommunication({renderAfter=false}={}){if(!db.user||dkCommunicationBusy)return;dkCommunicationBusy=true;try{const[pr,mr,ar,qr]=await Promise.all([dkSupabase.from('profiles').select('id,full_name,username,role,is_active').eq('is_active',true).order('full_name'),dkSupabase.from('messages').select('*').order('created_at',{ascending:true}),dkSupabase.from('announcements').select('*').order('created_at',{ascending:true}),dkSupabase.from('announcement_acknowledgements').select('*')]);if(pr.error)throw pr.error;if(mr.error)throw mr.error;if(ar.error)throw ar.error;if(qr.error)throw qr.error;const ps=pr.data||[];db.employees=ps.map(p=>{const old=(db.employees||[]).find(e=>e.authId===p.id||e.u===p.username)||{};return {...old,u:p.username,name:p.full_name,role:p.role,authId:p.id,email:p.email||old.email||'',is_active:p.is_active,p:old.p||''};});const me=db.user.authId,mp=ps.find(p=>p.id===me)||ps.find(p=>p.username===db.user.u);if(mp)db.user={...db.user,u:mp.username,name:mp.full_name,role:mp.role,authId:mp.id};db.messages=(mr.data||[]).map(dkMessageToLocal).filter(m=>m.fromAuthId===me||m.toAuthId===me||m.from===db.user.u||m.to===db.user.u);db.announcements=(ar.data||[]).map(a=>dkAnnouncementToLocal(a,qr.data||[]));dkCommunicationReady=true;save();if(renderAfter)render();}catch(e){console.error('Danke Kalender online communication sync:',e);dkCommunicationReady=false;}finally{dkCommunicationBusy=false;}}
+async function markMessagesRead(otherU){const other=(db.employees||[]).find(e=>e.u===otherU);if(!other?.authId||!db.user?.authId)return;const now=new Date().toISOString();const rec=(db.messages||[]).filter(m=>m.fromAuthId===other.authId&&m.toAuthId===db.user.authId&&!m.read);for(const m of rec){const r=await dkSupabase.from('messages').update({read_at:now}).eq('id',m.id).is('read_at',null);if(!r.error)m.read=true;}}
+
+/* =========================================================
+   V78 - ONLINE CALENDAR CORE
+   Routes + appointments are now synced with Danke Kalender
+   Supabase. LocalStorage remains only as a UI cache for the
+   existing non-calendar modules until they are migrated.
+   ========================================================= */
+let dkOnlineChannel=null;
+let dkOnlineSyncBusy=false;
+let dkOnlineReady=false;
+let dkOverviewBookings={};
+
+function dkTimeRangeParts(range){
+  const m=String(range||'').match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/);
+  return m?{start:m[1],end:m[2]}:{start:'00:00',end:'01:00'};
+}
+function dkTimeHHMM(v){
+  const s=String(v||'');
+  return s.length>=5?s.slice(0,5):s;
+}
+function dkDateRangeId(){ return `${viewDate}_${db.user?.authId||db.user?.u||'user'}`; }
+function dkRouteToLocal(r){
+  const fallbackCol=Math.max(0,campaigns.findIndex(c=>c[0]===r.campaign));
+  const col=Number.isInteger(r.column_position) ? r.column_position : fallbackCol;
+  return {
+    id:r.id,
+    date:r.route_date,
+    time:`${dkTimeHHMM(r.time_start)}-${dkTimeHHMM(r.time_end)}`,
+    campaign:r.campaign,
+    campaignColor:r.campaign_color||campObj(r.campaign)[1],
+    col,
+    column_position:col,
+    slot_position:r.slot_position,
+    createdBy:r.created_by||''
+  };
+}
+function dkAppointmentToLocal(a,profilesById){
+  const p=profilesById.get(a.agent_id)||{};
+  const routeTime=a.time_start&&a.time_end?`${dkTimeHHMM(a.time_start)}-${dkTimeHHMM(a.time_end)}`:'';
+  const routeCol=Math.max(0,campaigns.findIndex(c=>c[0]===a.campaign));
+  return {
+    id:a.id,
+    slotId:a.route_id||null,
+    employee:p.username||a.agent_id,
+    employeeName:p.full_name||p.username||'Agent',
+    status:a.status||'pending',
+    createdAt:a.created_at||new Date().toISOString(),
+    updatedAt:a.updated_at||a.created_at||new Date().toISOString(),
+    routeDate:a.appointment_date||'',
+    routeTime,
+    routeCampaign:a.campaign||'',
+    routeCol,
+    rejectedDate:a.status==='rejected'?(a.appointment_date||''):undefined,
+    rejectedTime:a.status==='rejected'?routeTime:undefined,
+    rejectedCampaign:a.status==='rejected'?(a.campaign||''):undefined,
+    customerName:[a.kunde_name,a.vorname].filter(Boolean).join(' '),
+    kundeName:a.kunde_name||'',
+    vorname:a.vorname||'',
+    alter:a.alter||'',
+    strasse:a.strasse||'',
+    plz:a.plz||'',
+    ort:a.ort||'',
+    festnetz:a.festnetz||'',
+    mobil:a.mobil||'',
+    entscheidungstraeger:a.entscheidungstraeger||'',
+    gesprochenMit:a.gesprochen_mit||'',
+    baujahr:a.baujahr||'',
+    teilnehmer:a.teilnehmer||'',
+    heizart:a.heizart||'',
+    heizBaujahr:a.baujahr||'',
+    freiReihenhaus:a.frei_reihenhaus||'',
+    verbrauch:a.verbrauch||'',
+    vorlauftemperatur:a.vorlauftemperatur||'',
+    rohrsystem:a.rohrsystem||'',
+    beheizteWohnflaeche:a.beheizte_wohnflaeche||'',
+    notes:a.notes||'',
+    controlNote:a.control_note||'',
+    controlAt:a.control_at||'',
+    controlBy:a.control_by||'',
+    authAgentId:a.agent_id,
+    createdByAuthId:a.created_by
+  };
+}
+
+async function syncOnlineCalendar({renderAfter=false}={}){
+  if(!db.user||dkOnlineSyncBusy)return;
+  dkOnlineSyncBusy=true;
+  try{
+    const [routesRes, apptRes, profilesRes, overviewRes] = await Promise.all([
+      dkSupabase.from('routes').select('*').eq('route_date',viewDate).order('time_start').order('slot_position'),
+      dkSupabase.from('appointments').select('*').order('appointment_date').order('time_start'),
+      dkSupabase.from('profiles').select('id,full_name,username,role,is_active').eq('is_active',true).order('full_name'),
+      dkSupabase.rpc('get_calendar_overview',{p_date:viewDate})
+    ]);
+    if(routesRes.error)throw routesRes.error;
+    if(apptRes.error)throw apptRes.error;
+    if(profilesRes.error)throw profilesRes.error;
+    if(overviewRes.error)throw overviewRes.error;
+
+    const profilesById=new Map((profilesRes.data||[]).map(p=>[p.id,p]));
+    db.slots=(routesRes.data||[]).map(dkRouteToLocal);
+    db.bookings=(apptRes.data||[]).map(a=>dkAppointmentToLocal(a,profilesById));
+    dkOverviewBookings={};
+    (overviewRes.data||[]).forEach(o=>{
+      if(!o.booking_id||!o.route_id)return;
+      if(db.bookings.some(b=>b.id===o.booking_id))return;
+      dkOverviewBookings[o.route_id]={
+        id:o.booking_id,
+        slotId:o.route_id,
+        employee:o.agent_username||o.agent_id||'',
+        employeeName:o.agent_name||o.agent_username||'Agent',
+        status:o.booking_status||'pending',
+        routeDate:o.route_date,
+        routeTime:`${dkTimeHHMM(o.time_start)}-${dkTimeHHMM(o.time_end)}`,
+        routeCampaign:o.campaign||'',
+        routeCol:Math.max(0,campaigns.findIndex(c=>c[0]===o.campaign)),
+        overviewOnly:true
+      };
+    });
+    dkOnlineReady=true;
+    save();
+    if(renderAfter && !document.querySelector('.modalBack'))render();
+  }catch(e){
+    console.error('Danke Kalender online sync:',e);
+    dkOnlineReady=false;
+  }finally{
+    dkOnlineSyncBusy=false;
+  }
+}
+function startOnlineRealtime(){
+  if(dkOnlineChannel){try{dkSupabase.removeChannel(dkOnlineChannel);}catch(e){}}
+  if(dkCommunicationChannel){try{dkSupabase.removeChannel(dkCommunicationChannel);}catch(e){}}
+  if(!db.user?.authId)return;
+  dkOnlineChannel=dkSupabase.channel(`dk-calendar-${db.user.authId}`)
+    .on('postgres_changes',{event:'*',schema:'public',table:'routes'},()=>syncOnlineCalendar({renderAfter:true}))
+    .on('postgres_changes',{event:'*',schema:'public',table:'appointments'},()=>syncOnlineCalendar({renderAfter:true}))
+    .subscribe();
+  dkCommunicationChannel=dkSupabase.channel(`dk-communication-${db.user.authId}`)
+    .on('postgres_changes',{event:'*',schema:'public',table:'messages'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'announcement_acknowledgements'},async()=>{await syncOnlineCommunication({renderAfter:true});})
+    .subscribe();
+}
+function booking(slot){
+  const full=db.bookings.find(b=>b.slotId===slot.id);
+  return full||dkOverviewBookings[slot.id]||null;
+}
+function openBooking(id){
+  let b=db.bookings.find(x=>x.id===id);
+  if(!b){
+    const overview=Object.values(dkOverviewBookings).find(x=>x.id===id);
+    if(overview)return alert('Bu termin başka bir Agent\'e ait. Müşteri detaylarını yalnızca termin sahibi ve Admin görebilir.');
+    return alert('Termin bulunamadı.');
+  }
+  if(b.employee!==db.user.u&&db.user.role!=='admin')return alert('Bu termin detaylarını sadece sahibi ve admin görebilir.');
+  let s=b.slotId?db.slots.find(x=>x.id===b.slotId):{id:null,date:b.rejectedDate||b.routeDate||viewDate,time:b.rejectedTime||b.routeTime||'—',campaign:b.rejectedCampaign||b.routeCampaign||'—',col:b.routeCol};
+  document.getElementById('app').insertAdjacentHTML('beforeend',modalHtml(s,b));
+}
+function selectDate(v){
+  if(!v)return;
+  viewDate=v;
+  render();
+  syncOnlineCalendar({renderAfter:true});
+}
+function shiftDay(delta){
+  let d=new Date(viewDate+'T12:00:00');
+  d.setDate(d.getDate()+delta);
+  viewDate=d.toISOString().slice(0,10);
+  render();
+  syncOnlineCalendar({renderAfter:true});
+}
+
+async function createRouteAtTime(t,col){
+  if(db.user?.role!=='admin')return alert('Sadece Admin rota açabilir.');
+  const campaign=document.getElementById('rc')?.value||'';
+  if(!campaign)return;
+  const parts=dkTimeRangeParts(t);
+  const columnPosition=Number(col);
+  const same=db.slots.filter(s=>s.date===viewDate&&s.time===t&&s.campaign===campaign);
+  const slotPosition=same.length+1;
+  const payload={
+    route_date:viewDate,
+    time_start:parts.start,
+    time_end:parts.end,
+    campaign,
+    campaign_color:campObj(campaign)[1],
+    column_position:columnPosition,
+    slot_position:slotPosition,
+    created_by:db.user.authId
+  };
+  try{
+    const {data,error}=await dkSupabase.from('routes').insert(payload).select('*').single();
+    if(error)throw error;
+    const slot=dkRouteToLocal(data);
+    db.slots.push(slot);
+    audit('route.created','route',slot.id,`${campaign} · ${t}`,`Rota oluşturuldu: ${fmt(viewDate)} · ${t} · ${campaign}`);
+    save();closeModal();render();
+  }catch(e){alert(`Rota oluşturulamadı: ${e.message||e}`);}
+}
+
+async function saveBooking(slotId,bid){
+  let g=id=>(document.getElementById(id)?.value||'').trim();
+  const x={kundeName:g('f_kundeName'),vorname:g('f_vorname'),alter:g('f_alter'),strasse:g('f_strasse'),plz:g('f_plz'),ort:g('f_ort'),festnetz:g('f_festnetz'),mobil:g('f_mobil'),entscheidungstraeger:g('f_entscheidungstraeger'),gesprochenMit:g('f_gesprochenMit'),baujahr:g('f_baujahr'),teilnehmer:g('f_teilnehmer'),heizart:g('f_heizart'),heizBaujahr:g('f_heizBaujahr'),freiReihenhaus:g('f_freiReihenhaus'),verbrauch:g('f_verbrauch'),vorlauftemperatur:g('f_vorlauftemperatur'),rohrsystem:g('f_rohrsystem'),beheizteWohnflaeche:g('f_beheizteWohnflaeche')};
+  x.customerName=[x.kundeName,x.vorname].filter(Boolean).join(' ')||x.entscheidungstraeger||x.gesprochenMit||'';
+  const existing=bid?db.bookings.find(b=>b.id===bid):null;
+  const rs=db.slots.find(s=>s.id===slotId) || (existing?.slotId?db.slots.find(s=>s.id===existing.slotId):null);
+  if(!rs && !existing)return alert('Rota bulunamadı.');
+  const range=rs?dkTimeRangeParts(rs.time):dkTimeRangeParts(existing?.routeTime||'00:00-01:00');
+  const routeDate=rs?.date||existing?.routeDate||viewDate;
+  const routeCampaign=rs?.campaign||existing?.routeCampaign||'';
+  const payload={
+    route_id:rs?.id||existing?.slotId||null,
+    appointment_date:routeDate,
+    time_start:range.start,
+    time_end:range.end,
+    campaign:routeCampaign,
+    campaign_color:campObj(routeCampaign)[1],
+    agent_id:existing?.authAgentId||db.user.authId,
+    created_by:bid?(existing?.createdByAuthId||db.user.authId):db.user.authId,
+    kunde_name:x.kundeName,
+    vorname:x.vorname,
+    alter:x.alter,
+    strasse:x.strasse,
+    plz:x.plz,
+    ort:x.ort,
+    festnetz:x.festnetz,
+    mobil:x.mobil,
+    entscheidungstraeger:x.entscheidungstraeger,
+    gesprochen_mit:x.gesprochenMit,
+    baujahr:x.baujahr,
+    teilnehmer:x.teilnehmer,
+    heizart:x.heizart,
+    frei_reihenhaus:x.freiReihenhaus,
+    verbrauch:x.verbrauch,
+    vorlauftemperatur:x.vorlauftemperatur,
+    rohrsystem:x.rohrsystem,
+    beheizte_wohnflaeche:x.beheizteWohnflaeche
+  };
+  try{
+    if(bid){
+      const before=existing?JSON.parse(JSON.stringify(existing)):null;
+      const {data,error}=await dkSupabase.from('appointments').update(payload).eq('id',bid).select('*').single();
+      if(error)throw error;
+      const profilesRes=await dkSupabase.from('profiles').select('id,full_name,username').eq('id',data.agent_id).single();
+      const mapped=dkAppointmentToLocal(data,new Map(profilesRes.data?[[profilesRes.data.id,profilesRes.data]]:[]));
+      const idx=db.bookings.findIndex(b=>b.id===bid);
+      if(idx>=0)db.bookings[idx]=mapped;else db.bookings.push(mapped);
+      if(before){const changed=bookingChangedFields(before,mapped);if(changed.length)audit('booking.updated','booking',mapped.id,mapped.customerName||before.customerName,`Değiştirilen alanlar: ${changed.join(', ')}`);}
+    }else{
+      payload.status='pending';
+      const {data,error}=await dkSupabase.from('appointments').insert(payload).select('*').single();
+      if(error)throw error;
+      const mapped=dkAppointmentToLocal(data,new Map([[db.user.authId,{id:db.user.authId,full_name:db.user.name,username:db.user.u}]]));
+      db.bookings.push(mapped);
+      audit('booking.created','booking',mapped.id,mapped.customerName||'Termin',`Termin oluşturuldu: ${mapped.routeDate} · ${mapped.routeTime} · ${mapped.routeCampaign}`);
+    }
+    save();closeModal();await syncOnlineCalendar();render();
+  }catch(e){alert(`Termin kaydedilemedi: ${e.message||e}`);}
+}
+
+async function setStatus(id,status){
+  if(db.user.role!=='admin')return;
+  const b=db.bookings.find(x=>x.id===id);
+  if(!b)return;
+  const note=(document.getElementById('cnote')?.value||'').trim();
+  if(!note)return alert('Lütfen kontrol birimi notunu yaz.');
+  try{
+    const oldStatus=b.status;
+    const updateData={status,control_note:note};
+    // Reddedilen termin ana takvimden çıkar; tarih/saat/kampanya alanları kayıtta korunur.
+    if(status==='rejected')updateData.route_id=null;
+    else if(!b.slotId && b.rejectedSlotId)updateData.route_id=b.rejectedSlotId;
+    const {error}=await dkSupabase.from('appointments').update(updateData).eq('id',id);
+    if(error)throw error;
+    audit('booking.status','booking',id,b.customerName||'Termin',`Durum: ${statusText(oldStatus)} → ${statusText(status)} · Not: ${note}`);
+    save();closeModal();await syncOnlineCalendar();render();
+  }catch(e){alert(`Termin durumu güncellenemedi: ${e.message||e}`);}
+}
+
+async function deleteBooking(id){
+  const b=db.bookings.find(x=>x.id===id);
+  if(!b)return;
+  if(db.user.role!=='admin'&&b.employee!==db.user.u)return alert('Bu termini silemezsin.');
+  if(!confirm('Bu termini silmek istediğine emin misin?\n\nTermin “Silinenler” alanına taşınacak ve Admin tarafından geri getirilebilecek.'))return;
+  try{
+    if(db.user.role==='admin'){
+      const deletedData=JSON.parse(JSON.stringify({...b,deletedAt:new Date().toISOString(),deletedBy:db.user.u,deletedByName:db.user.name,deletedReason:'Manuel olarak silindi'}));
+      const ins=await dkSupabase.from('deleted_appointments').insert({original_appointment_id:b.id,deleted_by:db.user.authId,delete_reason:'Manuel olarak silindi',appointment_data:deletedData});
+      if(ins.error)throw ins.error;
+    }
+    const {error}=await dkSupabase.from('appointments').delete().eq('id',id);
+    if(error)throw error;
+    if(!Array.isArray(db.deletedBookings))db.deletedBookings=[];
+    if(db.user.role==='admin')db.deletedBookings.push({...b,deletedAt:new Date().toISOString(),deletedBy:db.user.u,deletedByName:db.user.name,deletedReason:'Manuel olarak silindi'});
+    audit('booking.deleted','booking',b.id,b.customerName||'Termin',`Termin silinenler alanına taşındı: ${b.routeDate||''} · ${b.routeTime||''} · ${b.routeCampaign||''}`);
+    save();closeModal();await syncOnlineCalendar();render();
+  }catch(e){alert(`Termin silinemedi: ${e.message||e}`);}
+}
+
+async function deleteRoute(id){
+  if(db.user?.role!=='admin')return;
+  const slot=db.slots.find(s=>s.id===id);
+  const b=slot?booking(slot):null;
+  if(b)return alert('Bu rotada termin var. Önce termini kontrol/iptal etmelisin.');
+  if(!slot)return;
+  if(!confirm('Bu rotayı tamamen silmek istediğine emin misin?'))return;
+  try{
+    const {error}=await dkSupabase.from('routes').delete().eq('id',id);
+    if(error)throw error;
+    audit('route.deleted','route',slot.id,`${slot.campaign} · ${slot.time}`,`Rota silindi: ${fmt(slot.date)} · ${slot.time} · ${slot.campaign}`);
+    await syncOnlineCalendar();save();render();
+  }catch(e){alert(`Rota silinemedi: ${e.message||e}`);}
+}
+
+async function dropOnCell(e,targetSlotId){
+  e.preventDefault();e.stopPropagation();didDrag=true;
+  if(!draggingBookingId)return;
+  const b=db.bookings.find(x=>x.id===draggingBookingId);
+  if(!b)return;
+  const target=targetSlotId?db.slots.find(s=>s.id===targetSlotId):null;
+  if(!target){alert('Önce bu saate aynı kampanya için bir rota açılmalı.');dragEnd();return;}
+  const oldSlot=db.slots.find(s=>s.id===b.slotId);
+  if(target.campaign!==oldSlot?.campaign){alert('Termin sadece aynı kampanya sütununda başka bir saate taşınabilir.');dragEnd();return;}
+  if(booking(target)){alert('Bu rotada zaten termin var.');dragEnd();return;}
+  const parts=dkTimeRangeParts(target.time);
+  try{
+    const {error}=await dkSupabase.from('appointments').update({route_id:target.id,appointment_date:target.date,time_start:parts.start,time_end:parts.end,campaign:target.campaign,campaign_color:campObj(target.campaign)[1]}).eq('id',b.id);
+    if(error)throw error;
+    const oldDate=oldSlot?.date||b.routeDate,oldTime=oldSlot?.time||b.routeTime;
+    audit('booking.moved','booking',b.id,b.customerName||'Termin',`Termin taşındı: ${oldDate||''} ${oldTime||''} → ${target.date} ${target.time}`);
+    dragEnd();await syncOnlineCalendar();render();
+  }catch(err){alert(`Termin taşınamadı: ${err.message||err}`);dragEnd();}
+}
+
+async function bootOnlineAuth(){
+  try{
+    db.user=null;
+    save();
+
+    const current=await dkSupabase.auth.getSession();
+    if(current.error)throw current.error;
+
+    let session=current.data.session||null;
+    if(!session?.user){
+      const refreshed=await dkSupabase.auth.refreshSession();
+      if(!refreshed.error)session=refreshed.data.session||null;
+    }
+
+    if(!session?.user){
+      login();
+      return;
+    }
+
+    dkAuthSession=session;
+
+    const {data:profileData,error:profileErr}=await dkSupabase.rpc('get_my_profile');
+    const profile=Array.isArray(profileData)?profileData[0]:profileData;
+
+    if(profileErr||!profile||profile.is_active!==true){
+      dkAuthSession=null;
+      await dkSupabase.auth.signOut();
+      db.user=null;
+      save();
+      login();
+      return;
+    }
+
+    const local=(db.employees||[]).find(e=>e.u===profile.username)||{};
+    db.user={...local,u:profile.username,name:profile.full_name,role:profile.role,authId:profile.id,email:profile.email||session.user.email||''};
+    if(!Array.isArray(db.employees))db.employees=[];
+    const idx=db.employees.findIndex(e=>e.u===profile.username);
+    const merged={...local,u:profile.username,name:profile.full_name,role:profile.role,authId:profile.id,email:profile.email||session.user.email||''};
+    if(idx>=0)db.employees[idx]={...db.employees[idx],...merged};
+    else db.employees.push(merged);
+    save();
+    await syncOnlineCalendar();
+    await syncOnlineCommunication();
+    startOnlineRealtime();
+    render();
+    // V94: announcements must be checked for every active account,
+    // including Admin accounts. The sender will not be shown their own announcement.
+    setTimeout(()=>showUnreadAnnouncements(true),700);
+    setInterval(()=>{ if(db.user) showUnreadAnnouncements(false); },5000);
+  }catch(e){
+    console.error(e);
+    dkAuthSession=null;
+    db.user=null;
+    save();
+    login();
+  }
+}
+
+
+dkSupabase.auth.onAuthStateChange((_event, session)=>{
+  if(session)dkAuthSession=session;
+  if(_event==='SIGNED_OUT'){dkAuthSession=null;db.user=null;save();login();}
+});
+
+bootOnlineAuth();
