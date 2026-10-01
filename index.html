@@ -928,7 +928,119 @@ window.__renderDeletedBookings=function(q=''){
   });
 };
  function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)window.__renderDeletedBookings(q);}
- function restoreDeletedBooking(id){
+async function restoreDeletedBooking(id){
+  if(db.user?.role!=='admin')return;
+
+  const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);
+  if(idx<0)return alert('Silinen termin bulunamadı.');
+
+  const b=JSON.parse(JSON.stringify(db.deletedBookings[idx]));
+
+  if(db.bookings.some(x=>x.id===b.id)){
+    return alert('Bu termin zaten takvimde bulunuyor.');
+  }
+
+  if(b.slotId){
+    const target=db.slots.find(s=>s.id===b.slotId);
+    if(target&&booking(target)){
+      return alert('Bu termin için rota şu anda başka bir termin tarafından kullanılıyor. Önce rotayı kontrol et.');
+    }
+  }
+
+  try{
+    const timeParts=String(b.routeTime||'08:00-09:00')
+      .split('-')
+      .map(x=>x.trim());
+
+    const timeStart=timeParts[0]||'08:00';
+    const timeEnd=timeParts[1]||'09:00';
+
+    const campaignName=b.routeCampaign||'TURUNCU';
+
+    let campaignColor=b.campaignColor||b.campaign_color||null;
+
+    if(!campaignColor && Array.isArray(campaigns)){
+      const c=campaigns.find(x=>x[0]===campaignName);
+      if(c)campaignColor=c[1]||null;
+    }
+
+    const appointment={
+      id:b.id,
+      route_id:b.slotId||null,
+      appointment_date:b.routeDate||b.rejectedDate||viewDate,
+      time_start:timeStart,
+      time_end:timeEnd,
+      campaign:campaignName,
+      campaign_color:campaignColor,
+      agent_id:b.authAgentId||null,
+      created_by:b.createdByAuthId||null,
+      kunde_name:b.kundeName||'',
+      vorname:b.vorname||'',
+      alter:b.alter||'',
+      strasse:b.strasse||'',
+      plz:b.plz||'',
+      ort:b.ort||'',
+      festnetz:b.festnetz||'',
+      mobil:b.mobil||'',
+      entscheidungstraeger:b.entscheidungstraeger||'',
+      gesprochen_mit:b.gesprochenMit||'',
+      baujahr:b.baujahr||'',
+      teilnehmer:b.teilnehmer||'',
+      heizart:b.heizart||'',
+      frei_reihenhaus:b.freiReihenhaus||'',
+      verbrauch:b.verbrauch||'',
+      vorlauftemperatur:b.vorlauftemperatur||'',
+      rohrsystem:b.rohrsystem||'',
+      beheizte_wohnflaeche:b.beheizteWohnflaeche||'',
+      notes:b.notes||'',
+      control_note:b.controlNote||'',
+      status:b.status||'pending',
+      created_at:b.createdAt||new Date().toISOString(),
+      updated_at:b.updatedAt||new Date().toISOString()
+    };
+
+    const ins=await dkSupabase
+      .from('appointments')
+      .insert(appointment);
+
+    if(ins.error)throw ins.error;
+
+    const del=await dkSupabase
+      .from('deleted_appointments')
+      .delete()
+      .eq('original_appointment_id',b.id);
+
+    if(del.error)throw del.error;
+
+    delete b.deletedAt;
+    delete b.deletedBy;
+    delete b.deletedByName;
+    delete b.deletedReason;
+
+    db.bookings.push(b);
+    db.deletedBookings.splice(idx,1);
+
+    audit(
+      'booking.restored',
+      'booking',
+      b.id,
+      b.customerName||b.kundeName||'Termin',
+      `Termin geri yüklendi: ${b.routeDate||''} · ${b.routeTime||''} · ${b.routeCampaign||''}`
+    );
+
+    save();
+
+    document.getElementById('deletedBookingsModal')?.remove();
+
+    await syncOnlineCalendar();
+    render();
+
+    alert('Termin başarıyla geri yüklendi.');
+  }catch(e){
+    console.error('Termin geri yükleme hatası:',e);
+    alert(`Termin geri yüklenemedi: ${e.message||e}`);
+  }
+}
   if(db.user?.role!=='admin')return;
   const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return alert('Silinen termin bulunamadı.');
   const b=JSON.parse(JSON.stringify(db.deletedBookings[idx]));
