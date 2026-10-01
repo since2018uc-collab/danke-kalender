@@ -1041,20 +1041,6 @@ async function restoreDeletedBooking(id){
     alert(`Termin geri yüklenemedi: ${e.message||e}`);
   }
 }
-  if(db.user?.role!=='admin')return;
-  const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return alert('Silinen termin bulunamadı.');
-  const b=JSON.parse(JSON.stringify(db.deletedBookings[idx]));
-  delete b.deletedAt;delete b.deletedBy;delete b.deletedByName;delete b.deletedReason;
-  if(b.slotId && !db.slots.some(s=>s.id===b.slotId)){
-    const slot={id:b.slotId,date:b.routeDate||b.rejectedDate||viewDate,time:b.routeTime||b.rejectedTime||'08:00-09:00',campaign:b.routeCampaign||b.rejectedCampaign||'TURUNCU',col:Number.isInteger(b.routeCol)?b.routeCol:Math.max(0,campaigns.findIndex(c=>c[0]===(b.routeCampaign||b.rejectedCampaign)))};
-    db.slots.push(slot);
-  }
-  if(db.bookings.some(x=>x.id===b.id))return alert('Bu termin zaten takvimde bulunuyor.');
-  if(b.slotId){const target=db.slots.find(s=>s.id===b.slotId);if(target&&booking(target))return alert('Bu termin için rota şu anda başka bir termin tarafından kullanılıyor. Önce rotayı kontrol et.');}
-  db.bookings.push(b);db.deletedBookings.splice(idx,1);
-  audit('booking.restored','booking',b.id,b.customerName||'Termin',`Termin geri yüklendi: ${b.routeDate||b.rejectedDate||''} · ${b.routeTime||b.rejectedTime||''} · ${b.routeCampaign||b.rejectedCampaign||''}`);
-  save();document.getElementById('deletedBookingsModal')?.remove();render();alert('Termin başarıyla geri yüklendi.');
-}
 function permanentlyDeleteBooking(id){
   if(db.user?.role!=='admin')return;
   const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return;
