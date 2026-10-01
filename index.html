@@ -1180,11 +1180,9 @@ async function deleteUser(u){
   }
 
   try{
-    const {error}=await dkSupabase
-      .from('profiles')
-      .update({is_active:false})
-      .eq('username',u);
-
+    const {error}=await dkSupabase.rpc('deactivate_user',{
+  target_username:u
+});
     if(error)throw error;
 
     audit(
