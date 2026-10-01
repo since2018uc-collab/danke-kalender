@@ -1749,6 +1749,7 @@ function dkAppointmentToLocal(a,profilesById){
   return {
     id:a.id,
     slotId:a.route_id||null,
+   rejectedSlotId:a.rejected_route_id||null,
     employee:p.username||a.agent_id,
     employeeName:p.full_name||p.username||'Agent',
     status:a.status||'pending',
@@ -1976,7 +1977,10 @@ async function setStatus(id,status){
     const oldStatus=b.status;
     const updateData={status,control_note:note};
     // Reddedilen termin ana takvimden çıkar; tarih/saat/kampanya alanları kayıtta korunur.
-    if(status==='rejected')updateData.route_id=null;
+   if(status==='rejected'){
+  updateData.rejected_route_id=b.slotId||b.rejectedSlotId||null;
+  updateData.route_id=null;
+}
     else if(!b.slotId && b.rejectedSlotId)updateData.route_id=b.rejectedSlotId;
     const {error}=await dkSupabase.from('appointments').update(updateData).eq('id',id);
     if(error)throw error;
