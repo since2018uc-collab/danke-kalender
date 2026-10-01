@@ -334,10 +334,10 @@ function agentOwnRangeValues(){
 function calcOwnAgentReport(){
   const {from,to}=agentOwnRangeValues();
   if(!from||!to||from>to)return {from,to,list:[],counts:{approved:0,rejected:0,pending:0,unreachable:0}};
-  const meU=normalizeAgentKey(db.user?.u), meName=normalizeAgentKey(db.user?.name);
+  const meU=normalizeAgentKey(db.user?.u), meName=normalizeAgentKey(db.user?.name), meAuth=normalizeAgentKey(db.user?.authId);
   const list=db.bookings.filter(b=>{
-    const keys=[b?.employee,b?.agent,b?.username,b?.user,b?.employeeName,b?.agentName].filter(v=>v!==undefined&&v!==null&&String(v).trim()!=='').map(normalizeAgentKey);
-    const own=keys.includes(meU)||keys.includes(meName);
+    const keys=[b?.employee,b?.agent,b?.username,b?.user,b?.employeeName,b?.agentName,b?.authAgentId,b?.agentId].filter(v=>v!==undefined&&v!==null&&String(v).trim()!=='').map(normalizeAgentKey);
+    const own=keys.includes(meU)||keys.includes(meName)||keys.includes(meAuth);
     if(!own)return false;
     const d=ownBookingDate(b);
     return d && d>=from && d<=to;
