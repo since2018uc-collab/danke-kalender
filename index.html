@@ -822,8 +822,113 @@ function adminAddAtTime(t,col){
   const defaultCampaign=options[col]?.[0]||options[0]?.[0]||'';
   document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="modal"><div class="modal"><h3>Rota Ekle</h3><p style="color:#68758b">Tarih: <b>${fmt(viewDate)}</b><br>Saat: <b>${esc(t)}</b><br><b>Tıkladığın kutu:</b> ${esc(defaultCampaign)}<br><span style="font-size:12px">İstediğin kampanyayı seçebilirsin; seçtiğin kampanya tıkladığın kutuda kalır.</span></p><label>Kampanya</label><select id="rc">${options.map((c,i)=>`<option value="${esc(c[0])}" ${i===col?'selected':''}>${c[0]}</option>`).join('')}</select><div class="actions"><button class="action gray" onclick="closeModal()">İptal</button><button class="action blue" onclick="createRouteAtTime('${t}',${col})">Rotayı Aç</button></div></div></div>`);
 }
-function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)box.innerHTML=window.__renderDeletedBookings(q);}
-function restoreDeletedBooking(id){
+function openDeletedBookings(){
+  if(db.user?.role!=='admin') return;
+
+  let modal=document.getElementById('deletedBookingsModal');
+
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='deletedBookingsModal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
+
+    modal.innerHTML=`
+      <div style="background:#fff;width:min(1100px,96vw);max-height:90vh;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid #ddd;">
+          <div>
+            <h2 style="margin:0;color:#14213d;">Silinen Terminler</h2>
+            <div style="margin-top:5px;color:#718096;">Silinen termin kayıtları</div>
+          </div>
+          <button id="closeDeletedBookings" style="border:0;background:#eee;border-radius:10px;padding:10px 14px;cursor:pointer;font-size:18px;">✕</button>
+        </div>
+
+        <div style="padding:15px 20px;border-bottom:1px solid #eee;">
+          <input id="deletedBookingSearch" type="text" placeholder="Müşteri, PLZ, şehir veya çalışan ara..." style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #ccd5e0;border-radius:10px;">
+        </div>
+
+        <div id="deletedBookingResults" style="padding:20px;overflow:auto;"></div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    document.getElementById('closeDeletedBookings').onclick=()=>{
+      modal.remove();
+    };
+
+    document.getElementById('deletedBookingSearch').oninput=(e)=>{
+      filterDeletedBookings(e.target.value);
+    };
+  }
+
+  modal.style.display='flex';
+  filterDeletedBookings('');
+}
+window.__renderDeletedBookings=function(q=''){
+  const box=document.getElementById('deletedBookingResults');
+  if(!box)return;
+
+  const query=String(q||'').trim().toLowerCase();
+
+  const list=(db.deletedBookings||[]).filter(b=>{
+    if(!query)return true;
+
+    return [
+      b.id,b.customerName,b.kundeName,b.vorname,
+      b.employee,b.employeeName,b.plz,b.ort,
+      b.routeDate,b.routeTime,b.deletedByName,b.deletedReason
+    ].some(v=>String(v??'').toLowerCase().includes(query));
+  });
+
+  if(!list.length){
+    box.innerHTML='<div style="padding:40px;text-align:center;color:#718096;">Silinen termin bulunamadı.</div>';
+    return;
+  }
+
+  box.innerHTML=list.map(b=>`
+    <div style="border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin-bottom:12px;background:#f8fafc;">
+      <div style="display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:280px;">
+          <div style="font-size:18px;font-weight:800;color:#14213d;">
+            ${b.customerName || b.kundeName || 'İsimsiz müşteri'}
+          </div>
+          <div style="margin-top:7px;color:#4a5568;line-height:1.7;">
+            <b>Tarih:</b> ${b.routeDate || '-'}
+            &nbsp; | &nbsp;
+            <b>Saat:</b> ${b.routeTime || '-'}
+            <br>
+            <b>Adres:</b> ${b.strasse || '-'}, ${b.plz || ''} ${b.ort || ''}
+            <br>
+            <b>Çalışan:</b> ${b.employeeName || b.employee || '-'}
+          </div>
+        </div>
+
+        <div style="min-width:220px;color:#4a5568;">
+          <div><b>Silinme tarihi:</b></div>
+          <div>${b.deletedAt ? new Date(b.deletedAt).toLocaleString('tr-TR') : '-'}</div>
+          <div style="margin-top:8px;"><b>Silen:</b></div>
+          <div>${b.deletedByName || b.deletedBy || '-'}</div>
+          ${b.deletedReason ? `
+            <div style="margin-top:8px;"><b>Silinme nedeni:</b></div>
+            <div>${b.deletedReason}</div>
+          ` : ''}
+        </div>
+
+        <button class="action blue" data-restore-deleted="${String(b.id).replace(/"/g,'&quot;')}">
+          Geri Al
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  box.querySelectorAll('[data-restore-deleted]').forEach(btn=>{
+    btn.onclick=()=>{
+      restoreDeletedBooking(btn.getAttribute('data-restore-deleted'));
+    };
+  });
+};
+ function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)box.innerHTML=window.__renderDeletedBookings(q);}
+ function restoreDeletedBooking(id){
   if(db.user?.role!=='admin')return;
   const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return alert('Silinen termin bulunamadı.');
   const b=JSON.parse(JSON.stringify(db.deletedBookings[idx]));
