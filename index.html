@@ -1167,7 +1167,47 @@ async function createUser(){
 }
 function editUser(oldU){let e=db.employees.find(x=>x.u===oldU);if(!e)return;let name=prompt(`${e.role==='admin'?'Admin':'Agent'} adı soyadı:`,e.name);if(name===null)return;name=name.trim();if(!name)return alert('Ad soyad boş olamaz.');let u=prompt('Kullanıcı adı:',e.u);if(u===null)return;u=u.trim().toLowerCase();if(!u)return alert('Kullanıcı adı boş olamaz.');if(!/^[a-z0-9._-]+$/.test(u))return alert('Kullanıcı adında sadece a-z, 0-9, nokta, alt çizgi ve tire kullanılabilir.');if(db.employees.some(x=>x.u===u&&x!==e))return alert('Bu kullanıcı adı zaten kullanılıyor.');const oldName=e.name;e.name=name;e.u=u;db.bookings.forEach(b=>{if(b.employee===oldU)b.employee=u;});if(db.user.u===oldU)db.user=e;audit('user.updated','user',u,name,`Hesap güncellendi: ${oldName} / ${oldU} → ${name} / ${u}`);save();document.getElementById('usersModal')?.remove();manageUsers();alert('Hesap bilgileri güncellendi.');}
 function resetUserPassword(u){let e=db.employees.find(x=>x.u===u);if(!e)return;let p=prompt(`${e.name} için yeni şifre:`,'');if(p===null)return;p=p.trim();if(p.length<4)return alert('Şifre en az 4 karakter olmalı.');e.p=p;if(db.user.u===u)db.user.p=p;audit('user.password','user',u,e.name,'Şifre güncellendi. Şifrenin kendisi işlem geçmişine kaydedilmedi.');save();alert('Şifre güncellendi.');}
-function deleteUser(u){let e=db.employees.find(x=>x.u===u);if(!e)return;if(e.u===db.user.u)return alert('Kendi admin hesabını silemezsin.');if(!confirm(`${e.name} hesabını silmek istediğine emin misin? Mevcut terminler silinmez.`))return;audit('user.deleted','user',u,e.name,`${e.role==='admin'?'Admin':'Agent'} hesabı silindi.`);db.employees=db.employees.filter(x=>x.u!==u);save();document.getElementById('usersModal')?.remove();manageUsers();}
+async function deleteUser(u){
+  const e=db.employees.find(x=>x.u===u);
+  if(!e)return;
+
+  if(e.u===db.user.u){
+    return alert('Kendi admin hesabını silemezsin.');
+  }
+
+  if(!confirm(`${e.name} hesabını silmek istediğine emin misin? Mevcut terminler silinmez.`)){
+    return;
+  }
+
+  try{
+    const {error}=await dkSupabase
+      .from('profiles')
+      .update({is_active:false})
+      .eq('username',u);
+
+    if(error)throw error;
+
+    audit(
+      'user.deleted',
+      'user',
+      u,
+      e.name,
+      `${e.role==='admin'?'Admin':'Agent'} hesabı pasif hale getirildi.`
+    );
+
+    db.employees=db.employees.filter(x=>x.u!==u);
+    save();
+
+    document.getElementById('usersModal')?.remove();
+
+    await manageUsers();
+
+    alert(`${e.name} hesabı başarıyla silindi.`);
+  }catch(err){
+    console.error('Kullanıcı silme hatası:',err);
+    alert('Kullanıcı silinemedi: '+(err?.message||err));
+  }
+}
 function changeOwnPassword(){if(!db.user||db.user.role!=='admin')return alert('Agent kullanıcıları şifrelerini değiştiremez.');let old=prompt('Mevcut şifreniz:');if(old===null)return;if(old!==db.user.p)return alert('Mevcut şifre yanlış.');let np=prompt('Yeni şifre (en az 4 karakter):');if(np===null)return;np=np.trim();if(np.length<4)return alert('Şifre en az 4 karakter olmalı.');let e=db.employees.find(x=>x.u===db.user.u);if(e){e.p=np;db.user.p=np;save();alert('Şifreniz güncellendi.');}}
 
 function timeToMin(t){if(!/^\d{2}:\d{2}$/.test(String(t||'')))return null;const [h,m]=String(t).split(':').map(Number);return h*60+m}
