@@ -346,6 +346,23 @@ if(!Array.isArray(db.deletedBookings))db.deletedBookings=[];
 const WEEK_DAYS=[['1','Pazartesi'],['2','Salı'],['3','Çarşamba'],['4','Perşembe'],['5','Cuma'],['6','Cumartesi'],['0','Pazar']];
 function defaultWorkSchedule(){let x={};WEEK_DAYS.forEach(([k])=>x[k]={enabled:['1','2','3','4','5'].includes(k),start:'08:00',end:'18:00',breaks:[{start:'10:00',end:'10:15',label:'Mola 1'},{start:'12:00',end:'13:00',label:'Öğle Molası'},{start:'15:00',end:'15:15',label:'Mola 2'}]});return x}
 if(!db.workSchedule||typeof db.workSchedule!=='object')db.workSchedule=defaultWorkSchedule();
+ async function syncOnlineWorkSchedule(){
+  try{
+    const {data,error}=await dkSupabase.rpc('get_work_schedule');
+    if(error)throw error;
+
+    if(data && typeof data==='object'){
+      db.workSchedule=data;
+      save();
+      return true;
+    }
+
+    return false;
+  }catch(e){
+    console.warn('Online mesai çizelgesi alınamadı:',e);
+    return false;
+  }
+}
 if(!db.breakNoticeSeen||typeof db.breakNoticeSeen!=='object')db.breakNoticeSeen={};
 
 /* V73: notification sound engine.
@@ -2089,7 +2106,8 @@ async function bootOnlineAuth(){
     save();
     await syncOnlineCalendar();
     await syncOnlineCommunication();
-    startOnlineRealtime();
+    await syncOnlineWorkSchedule();
+   startOnlineRealtime();
     render();
     if(db.user.role!=='admin'){
       setTimeout(updateAgentOwnReport,1000);
