@@ -1862,7 +1862,15 @@ function startOnlineRealtime(){
   dkOnlineChannel=dkSupabase.channel(`dk-calendar-${db.user.authId}`)
     .on('postgres_changes',{event:'*',schema:'public',table:'routes'},()=>syncOnlineCalendar({renderAfter:true}))
     .on('postgres_changes',{event:'*',schema:'public',table:'appointments'},()=>syncOnlineCalendar({renderAfter:true}))
-    .subscribe();
+   .on('postgres_changes',{
+  event:'*',
+  schema:'public',
+  table:'work_schedules'
+},async()=>{
+  await syncOnlineWorkSchedule();
+  render();
+})
+   .subscribe();
   dkCommunicationChannel=dkSupabase.channel(`dk-communication-${db.user.authId}`)
     .on('postgres_changes',{event:'*',schema:'public',table:'messages'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
     .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
