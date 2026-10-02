@@ -516,7 +516,7 @@ async function checkForNewNotifications(){
     else if(added.some(x=>x.startsWith('ann:')))playNotificationSound('announcement');
     else playNotificationSound('private');
     // Refresh the UI so the modal is raised without waiting for another action.
-    render();
+    if(!document.getElementById('messagesModal'))render();
   }
   dkSeenNotificationIds=current;
 }
@@ -1872,7 +1872,7 @@ function startOnlineRealtime(){
 })
    .subscribe();
   dkCommunicationChannel=dkSupabase.channel(`dk-communication-${db.user.authId}`)
-    .on('postgres_changes',{event:'*',schema:'public',table:'messages'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'messages'},async()=>{await syncOnlineCommunication({renderAfter:false});checkForNewNotifications();})
     .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
     .on('postgres_changes',{event:'*',schema:'public',table:'announcement_acknowledgements'},async()=>{await syncOnlineCommunication({renderAfter:true});})
     .subscribe();
