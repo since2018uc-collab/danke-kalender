@@ -1359,14 +1359,16 @@ function manageWorkSchedule(){
     return `<div class="workScheduleRow"><div class="dayCell"><div class="scheduleDay">${label}</div><div class="activeCell"><input id="ws_enabled_${k}" type="checkbox" ${sc.enabled?'checked':''}><label for="ws_enabled_${k}">Çalışma günü</label></div></div><div><input id="ws_start_${k}" type="time" value="${esc(sc.start||'08:00')}"></div><div><input id="ws_end_${k}" type="time" value="${esc(sc.end||'18:00')}"></div><div class="breakCell"><input id="ws_breaks_${k}" type="text" value="${esc(breakText)}" placeholder="Örn. 10:00-10:15 Mola 1, 12:00-13:00 Öğle Molası"><div class="breakHint">Molaları virgülle ayırabilirsin. Bildirim mola başlangıcında çıkar.</div></div></div>`}).join('');
   const modalId='workScheduleModal';document.getElementById(modalId)?.remove();
   document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="${modalId}"><div class="modal" style="max-width:960px"><div class="modalTitleRow"><div><div class="modalKicker">İK / MESAİ</div><h3>Mesai Çizelgesi</h3><div style="color:#748096;font-size:12px">Mesai saatlerini ve mola başlangıçlarını Admin olarak düzenleyebilirsin.</div></div><span class="statusPill approved">TÜM PERSONEL</span></div><div class="scheduleCard"><div class="scheduleMeta"><b>Örnek:</b> 10:00-10:15 Mola 1, 12:00-13:00 Öğle Molası, 15:00-15:15 Mola 2</div></div><div class="workScheduleGrid"><div class="head">Gün</div><div class="head">Mesai Başlangıç</div><div class="head">Mesai Bitiş</div><div class="head">Molalar</div>${rows}</div><div class="actions"><button class="action gray" onclick="testBreakNotification()">Mola Bildirimi Test Et</button><button class="action gray" onclick="document.getElementById('${modalId}')?.remove()">Kapat</button><button class="action blue" onclick="saveWorkSchedule()">Mesai Çizelgesini Kaydet</button></div></div></div>`);
-}
-function saveWorkSchedule(){
+}async function saveWorkSchedule(){
   if(db.user.role!=='admin')return;
   WEEK_DAYS.forEach(([k])=>{const start=document.getElementById(`ws_start_${k}`)?.value||'08:00',end=document.getElementById(`ws_end_${k}`)?.value||'18:00',breaks=normalizeScheduleBreaks(document.getElementById(`ws_breaks_${k}`)?.value||''),enabled=!!document.getElementById(`ws_enabled_${k}`)?.checked;
     if(timeToMin(end)<=timeToMin(start)){enabled=false;}
     db.workSchedule[k]={enabled,start,end,breaks};
   });
-  audit('schedule.updated','schedule','workSchedule','Mesai Çizelgesi','Haftalık mesai ve mola ayarları güncellendi.');save();document.getElementById('workScheduleModal')?.remove();alert('Mesai çizelgesi kaydedildi.');
+  audit('schedule.updated','schedule','workSchedule','Mesai Çizelgesi','Haftalık mesai ve mola ayarları güncellendi.');
+ const {error}=await dkSupabase.rpc('save_work_schedule',{p_schedule:db.workSchedule});
+if(error)throw error;
+save();document.getElementById('workScheduleModal')?.remove();alert('Mesai çizelgesi kaydedildi.');
 }
 function report(){
   const today=new Date().toISOString().slice(0,10);
