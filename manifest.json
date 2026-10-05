@@ -1,0 +1,11 @@
+{
+  "name": "Danke Kalender",
+  "short_name": "Danke Kalender",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#0b3972",
+  "description": "Danke Kalender – Rota, Termin ve ekip yönetimi",
+  "icons": []
+}
