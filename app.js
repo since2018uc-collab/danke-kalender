@@ -1547,3 +1547,38 @@ dkSupabase.auth.onAuthStateChange((_event, session)=>{
 });
 
 bootOnlineAuth();
+
+
+/* V1 - PWA / iPhone notification foundation (test branch only) */
+let dkPwaRegistration=null;
+let dkPushSetupTimer=null;
+async function dkRegisterPwa(){
+  try{
+    if(!('serviceWorker' in navigator))return null;
+    dkPwaRegistration=await navigator.serviceWorker.register('./sw.js',{scope:'./'});
+    return dkPwaRegistration;
+  }catch(e){console.warn('Danke Kalender PWA:',e);return null;}
+}
+async function dkEnableNotifications(){
+  try{
+    const reg=dkPwaRegistration||await dkRegisterPwa();
+    if(!reg||!('Notification' in window)||!('PushManager' in window)){
+      alert('Bu cihaz/tarayıcı web bildirimlerini desteklemiyor.');return;
+    }
+    const permission=await Notification.requestPermission();
+    if(permission!=='granted'){
+      alert('Bildirim izni verilmedi. iPhone\'da Ayarlar > Bildirimler bölümünden Danke Kalender bildirimlerini açabilirsin.');return;
+    }
+    alert('Bildirim izni açıldı. Şimdi uygulamayı Ana Ekran\'a eklediğimizde kilit ekranı bildirim altyapısı hazır olacak.');
+  }catch(e){console.error(e);alert('Bildirim kurulumu sırasında bir hata oluştu.');}
+}
+function dkEnsureNotificationButton(){
+  if(!db.user||document.getElementById('dkPushButton'))return;
+  const b=document.createElement('button');
+  b.id='dkPushButton'; b.className='action blue'; b.textContent='🔔 Bildirimleri Aç';
+  b.style.cssText='position:fixed;right:18px;bottom:18px;z-index:50;box-shadow:0 8px 25px rgba(0,0,0,.18)';
+  b.onclick=dkEnableNotifications;
+  document.body.appendChild(b);
+}
+dkRegisterPwa();
+dkPushSetupTimer=setInterval(()=>{if(db.user)dkEnsureNotificationButton();},1500);
