@@ -1550,7 +1550,7 @@ bootOnlineAuth();
 
 
 /* V2 - Web Push subscription foundation (test branch only) */
-const DK_VAPID_PUBLIC_KEY = 'BNuTiY5PtkFsXQt_e73ST1O_temF6ThFAEOlqWWfAS4o8Z9X0nt8vnvzGw4RHyMHyrMSsrXouviJq_xNi0xwWqc';
+const DK_VAPID_PUBLIC_KEY = 'BA_ABLI5gY_9yipUxZl-mR8OeBLOVmxzGQIdi-uMV1F4rf2wisqRmUpHOd4Vrdw45rE1j7StuACiGW78bsD_voU';
 let dkPwaRegistration=null;
 let dkPushSetupTimer=null;
 
