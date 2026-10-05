@@ -1549,15 +1549,40 @@ dkSupabase.auth.onAuthStateChange((_event, session)=>{
 bootOnlineAuth();
 
 
-/* V1 - PWA / iPhone notification foundation (test branch only) */
+/* V2 - Web Push subscription foundation (test branch only) */
+const DK_VAPID_PUBLIC_KEY = 'BNuTiY5PtkFsXQt_e73ST1O_temF6ThFAEOlqWWfAS4o8Z9X0nt8vnvzGw4RHyMHyrMSsrXouviJq_xNi0xwWqc';
 let dkPwaRegistration=null;
 let dkPushSetupTimer=null;
+
+function dkUrlBase64ToUint8Array(base64String){
+  const padding='='.repeat((4-base64String.length%4)%4);
+  const base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw=atob(base64);
+  return Uint8Array.from([...raw].map(ch=>ch.charCodeAt(0)));
+}
 async function dkRegisterPwa(){
   try{
     if(!('serviceWorker' in navigator))return null;
     dkPwaRegistration=await navigator.serviceWorker.register('./sw.js',{scope:'./'});
+    await navigator.serviceWorker.ready;
     return dkPwaRegistration;
   }catch(e){console.warn('Danke Kalender PWA:',e);return null;}
+}
+async function dkSavePushSubscription(subscription){
+  if(!db.user?.authId)return false;
+  const json=subscription.toJSON();
+  const keys=json.keys||{};
+  const payload={
+    user_id:db.user.authId,
+    endpoint:json.endpoint,
+    p256dh:keys.p256dh||'',
+    auth:keys.auth||'',
+    user_agent:navigator.userAgent,
+    updated_at:new Date().toISOString()
+  };
+  const {error}=await dkSupabase.from('push_subscriptions').upsert(payload,{onConflict:'endpoint'});
+  if(error)throw error;
+  return true;
 }
 async function dkEnableNotifications(){
   try{
@@ -1567,10 +1592,33 @@ async function dkEnableNotifications(){
     }
     const permission=await Notification.requestPermission();
     if(permission!=='granted'){
-      alert('Bildirim izni verilmedi. iPhone\'da Ayarlar > Bildirimler bölümünden Danke Kalender bildirimlerini açabilirsin.');return;
+      alert('Bildirim izni verilmedi. iPhone\'da Ayarlar > Bildirimler bölümünden Danke Kalender bildirimlerini açabilirsin.');
+      return;
     }
-    alert('Bildirim izni açıldı. Şimdi uygulamayı Ana Ekran\'a eklediğimizde kilit ekranı bildirim altyapısı hazır olacak.');
-  }catch(e){console.error(e);alert('Bildirim kurulumu sırasında bir hata oluştu.');}
+    let subscription=await reg.pushManager.getSubscription();
+    if(!subscription){
+      subscription=await reg.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:dkUrlBase64ToUint8Array(DK_VAPID_PUBLIC_KEY)
+      });
+    }
+    await dkSavePushSubscription(subscription);
+    const b=document.getElementById('dkPushButton');
+    if(b){b.textContent='✅ Bildirimler Açık';b.disabled=true;}
+    alert('Bildirimler başarıyla açıldı. Bu cihaz Danke Kalender için kayıt edildi.');
+  }catch(e){
+    console.error('Danke Kalender push setup:',e);
+    alert('Bildirim kurulumu sırasında bir hata oluştu. Lütfen tekrar dene.');
+  }
+}
+async function dkSyncExistingPushSubscription(){
+  try{
+    if(!db.user)return;
+    const reg=dkPwaRegistration||await dkRegisterPwa();
+    if(!reg||!('PushManager' in window))return;
+    const sub=await reg.pushManager.getSubscription();
+    if(sub)await dkSavePushSubscription(sub);
+  }catch(e){console.warn('Push subscription sync:',e);}
 }
 function dkEnsureNotificationButton(){
   if(!db.user||document.getElementById('dkPushButton'))return;
@@ -1579,6 +1627,7 @@ function dkEnsureNotificationButton(){
   b.style.cssText='position:fixed;right:18px;bottom:18px;z-index:50;box-shadow:0 8px 25px rgba(0,0,0,.18)';
   b.onclick=dkEnableNotifications;
   document.body.appendChild(b);
+  dkSyncExistingPushSubscription();
 }
 dkRegisterPwa();
 dkPushSetupTimer=setInterval(()=>{if(db.user)dkEnsureNotificationButton();},1500);
