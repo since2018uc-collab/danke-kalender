@@ -558,6 +558,8 @@ async function sendAnnouncement(){
     }).select('*').single();
     if(error)throw error;
     audit('announcement.created','announcement',row?.id||crypto.randomUUID(),title,'Duyuru oluşturuldu ve ekibe gönderildi.');
+    const recipientIds=(db.employees||[]).filter(e=>e.authId&&e.u!==db.user.u).map(e=>e.authId);
+    await dkSendPush(recipientIds,title,body,window.location.href);
     await syncOnlineCommunication();
     document.getElementById('announcementModal')?.remove();
     alert('Duyuru tüm aktif kullanıcılara gönderildi.');
@@ -1082,6 +1084,16 @@ async function selectMessagePerson(otherU){
   box.innerHTML=renderMessageChat(otherU);
   setTimeout(()=>{const t=document.getElementById('messageThread');if(t)t.scrollTop=t.scrollHeight;},0);
 }
+async function dkSendPush(userIds,title,body,url='./'){
+  try{
+    const ids=(Array.isArray(userIds)?userIds:[userIds]).filter(Boolean);
+    if(!ids.length||!dkAuthSession)return;
+    await fetch(DK_SUPABASE_URL+'/functions/v1/send-push',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+dkAuthSession.access_token},
+      body:JSON.stringify({user_ids:ids,title,body,url})
+    });
+  }catch(e){console.warn('Push gönderilemedi:',e);}
+}
 async function sendInternalMessage(otherU){
   if(!db.user||!otherU)return;
   const body=(document.getElementById('messageBody')?.value||'').trim();
@@ -1099,6 +1111,7 @@ async function sendInternalMessage(otherU){
     }).select('*').single();
     if(error)throw error;
     audit('message.sent','message',row?.id||crypto.randomUUID(),other.name||otherU,`Mesaj gönderildi: ${other.name||otherU}`);
+    await dkSendPush([other.authId],'Yeni mesaj',`${db.user.name||'Danke Kalender'} sana yeni bir mesaj gönderdi.`,window.location.href);
     await syncOnlineCommunication();
     await selectMessagePerson(otherU);
   }catch(e){alert(`Mesaj gönderilemedi: ${e.message||e}`);}
