@@ -828,30 +828,21 @@ function updateAdminAgentReport(){
 async function openDankeHomeAdmin(){
   if(!db.user||db.user.role!=='admin')return;
   try{
-    const supabase=window.supabase.createClient(
-      'https://cbznvkijchjptsthumyb.supabase.co',
-      'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'
-    );
-    let email=db.user.email||'';
-    if(!email){
-      const {data,error}=await supabase.rpc('get_login_email',{p_username:db.user.u});
-      if(error||!data){alert('DANKE HOME giriş bağlantısı kurulamadı.');return}
-      email=data;
-    }
-    const {data,error}=await supabase.auth.signInWithPassword({
-      email,
-      password:db.user.p||''
-    });
-    if(error||!data?.session){
-      alert('DANKE HOME Admin oturumu oluşturulamadı.');
-      return;
-    }
-    sessionStorage.setItem('dankeHomeReturn','1');
-    window.location.href='danke-home-admin.html';
-  }catch(e){
-    console.error(e);
-    alert('DANKE HOME bağlantısı kurulamadı.');
-  }
+    const supabase=dkSupabase||window.supabase.createClient('https://cbznvkijchjptsthumyb.supabase.co','sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG');
+    const [pRes,hRes,bRes,rRes]=await Promise.all([
+      supabase.from('profiles').select('id,full_name,username,email').eq('role','home_agent').eq('is_active',true).order('full_name'),
+      supabase.from('home_agents').select('profile_id,account_status,account_holder,iban,appointment_rate_eur'),
+      supabase.from('home_agent_balances').select('*'),
+      supabase.from('home_payout_requests').select('*').order('requested_at',{ascending:false}).limit(50)
+    ]);
+    if(pRes.error)throw pRes.error;if(hRes.error)throw hRes.error;if(bRes.error)throw bRes.error;if(rRes.error)throw rRes.error;
+    const profiles=pRes.data||[], homes=hRes.data||[], balances=bRes.data||[], payouts=rRes.data||[];
+    const pm=new Map(profiles.map(x=>[x.id,x])), hm=new Map(homes.map(x=>[x.profile_id,x])), bm=new Map(balances.map(x=>[x.home_agent_id,x]));
+    const agents=profiles.map(p=>{const h=hm.get(p.id)||{},b=bm.get(p.id)||{};return '<tr><td><b>'+esc(p.full_name||p.username)+'</b><div class="hrHelp">'+esc(p.username)+'</div></td><td>'+homeEuro(b.total_earned||0)+'</td><td>'+homeEuro(b.available_balance||0)+'</td><td>'+homeEuro(h.appointment_rate_eur||0)+'</td><td>'+esc(h.account_holder||'')+'<br>'+esc(h.iban||'')+'</td></tr>';}).join('')||'<tr><td colspan="5" class="hrEmpty">Home Agent bulunmuyor.</td></tr>';
+    const rows=payouts.map(x=>{const p=pm.get(x.home_agent_id);const sc=({paid:'paid',processing:'processing',requested:'requested',rejected:'rejected',cancelled:'rejected'})[x.status]||'requested';const st=({paid:'✅ ÖDENDİ',processing:'⏳ İŞLEMDE',requested:'🕒 BEKLİYOR',rejected:'❌ REDDEDİLDİ',cancelled:'❌ İPTAL'})[x.status]||x.status;return '<tr><td>'+new Date(x.requested_at).toLocaleString('tr-TR')+'</td><td>'+esc(p?.full_name||p?.username||'Home Agent')+'</td><td><b>'+homeEuro(x.amount_eur)+'</b></td><td><span class="payoutStatus '+sc+'">'+st+'</span></td></tr>';}).join('')||'<tr><td colspan="4" class="hrEmpty">Ödeme talebi yok.</td></tr>';
+    document.getElementById('homeAdminModal')?.remove();
+    document.getElementById('app').insertAdjacentHTML('beforeend','<div class="modalBack" id="homeAdminModal"><div class="modal" style="max-width:1000px"><div class="modalTitleRow"><div><div class="modalKicker">🏠 DANKE HOME</div><h3>Home Agent Yönetimi</h3><div style="color:#748096;font-size:12px">Home Agent hesapları ve ödeme talepleri.</div></div></div><div class="hrPanel"><h4>Home Agenten</h4><div class="hrTableWrap"><table class="hrTable"><thead><tr><th>Personel</th><th>Toplam Kazanç</th><th>Çekilebilir</th><th>OK Başına</th><th>Hesap</th></tr></thead><tbody>'+agents+'</tbody></table></div></div><div class="hrPanel"><h4>Auszahlungen</h4><div class="hrTableWrap"><table class="hrTable"><thead><tr><th>Tarih</th><th>Personel</th><th>Tutar</th><th>Durum</th></tr></thead><tbody>'+rows+'</tbody></table></div></div><div class="actions"><button class="action gray" onclick="document.getElementById(\'homeAdminModal\')?.remove()">Kapat</button></div></div></div>');
+  }catch(e){console.error(e);alert('DANKE HOME bilgileri alınamadı: '+(e?.message||e));}
 }
 
 function admin(){let d=viewDate,slots=db.slots.filter(s=>s.date===d);document.getElementById('app').innerHTML=header()+`<div class="wrap"><div class="toolbar" style="justify-content:flex-end;margin-bottom:10px"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action gray" onclick="report()">Rapor</button><button class="action blue" onclick="manageUsers()">Personeller</button><button class="action gray" onclick="managePayrolls()">Maaşlar</button><button class="action gray" onclick="manageWorkSchedule()">Mesai</button><button class="action gray" onclick="manageAnnouncements()">Duyuru</button><button class="action gray" onclick="manageAuditLogs()">Geçmiş</button><button class="action dangerOutline" onclick="openDeletedBookings()">Silinenler<span id="deletedCountBadge"></span></button><button class="action homeAction" onclick="openDankeHomeAdmin()">🏠 DANKE HOME</button></div></div>${gridAdmin(slots)}${rejectedBookings()}<div class="adminBar"><div><label>AÇIK ROTA</label><b>${slots.length}</b></div><div><label>KONTROL BEKLEYENLER</label><b>${db.bookings.filter(b=>b.status==='pending').length}</b></div><div><label>ONAYLANAN</label><b style="color:#159653">${db.bookings.filter(b=>b.status==='approved').length}</b></div><div><label>REDDEDİLEN</label><b style="color:#d33">${db.bookings.filter(b=>b.status==='rejected').length}</b></div><div><label>ULAŞILAMADI</label><b style="color:#5b6472">${db.bookings.filter(b=>b.status==='unreachable').length}</b></div></div>${agentMonthlyReport()}</div>`}
