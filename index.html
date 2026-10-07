@@ -326,6 +326,11 @@ header{
 <body>
 <div id="app"></div>
 <script>
+const DK_SUPABASE_URL = "https://cbznvkijchjptsthumyb.supabase.co";
+const DK_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG";
+const dkSupabase = window.supabase.createClient(DK_SUPABASE_URL, DK_SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'danke-kalender-auth' } });
+window.dkSupabase = dkSupabase;
+let dkAuthSession = null;
 const campaigns=[
  ['TURUNCU','#ffd9b5','turuncu'],['MAVİ','#b9dcff','mavi'],['SARI','#fff19b','sari'],
  ['LACİVERT','#bfcdf1','lacivert'],['MOR','#ddc6f5','mor'],['EFLATUN','#ead7f7','eflatun'],
