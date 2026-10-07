@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DANKE HOME</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
+<style>
+:root{--navy:#0a3a73;--navy2:#082d5b;--gold:#f2b93b;--bg:#f3f6fa;--ink:#17304d;--muted:#748096;--green:#169653;--red:#c93636}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink)}
+.top{height:76px;background:linear-gradient(135deg,var(--navy2),var(--navy));color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 28px}.brand{font-weight:900;letter-spacing:.8px;font-size:24px}.brand span{color:var(--gold)}.userbar{display:flex;align-items:center;gap:12px;font-size:13px}.logout{border:1px solid #ffffff44;background:#ffffff14;color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+.wrap{max-width:1180px;margin:26px auto;padding:0 18px}.loginWrap{min-height:100vh;display:grid;place-items:center;padding:20px;background:linear-gradient(135deg,#0a3a73,#dfeaf7)}.login{width:min(440px,94vw);background:#fff;border-radius:20px;padding:30px;box-shadow:0 20px 70px #082b5520}.login h1{margin:0 0 8px;font-size:32px}.login p{margin:0 0 20px;color:var(--muted);line-height:1.5}.field label{display:block;font-size:12px;font-weight:800;margin:12px 0 6px}.login input{width:100%;padding:12px;border:1px solid #ced8e5;border-radius:10px;background:#fff}.btn{border:0;border-radius:10px;padding:11px 14px;font-weight:800;cursor:pointer}.btn.primary{background:var(--navy);color:#fff}.btn.green{background:#dff5e8;color:#176f43}.btn.red{background:#ffe3e3;color:#9b2a2a}.btn.full{width:100%;margin-top:14px}.msg{margin-top:10px;color:#9b2a2a;font-size:12px;min-height:16px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:15px;flex-wrap:wrap;margin-bottom:18px}.head h1{margin:0;font-size:28px}.head p{margin:5px 0 0;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card,.panel{background:#fff;border:1px solid #e0e7ef;border-radius:15px;padding:16px;box-shadow:0 3px 15px #17304d08}.card label{display:block;color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.5px}.money{font-size:25px;font-weight:900;margin-top:6px}.sub{margin-top:5px;color:var(--muted);font-size:12px}.panel{margin-top:14px;box-shadow:none}.panel h3{margin:0 0 10px}.tableWrap{overflow:auto}.table{width:100%;border-collapse:collapse;font-size:12px}.table th,.table td{padding:9px 8px;border-bottom:1px solid #e8edf3;text-align:left;vertical-align:top}.table th{font-size:10px;color:#6d7b90;text-transform:uppercase}.status{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:900}.status.requested{background:#fff2c9;color:#846100}.status.processing{background:#e7eff9;color:#26578a}.status.paid{background:#dff5e8;color:#166e42}.status.rejected{background:#ffe3e3;color:#9b2a2a}.note{background:#f7f9fc;border:1px dashed #c9d6e5;padding:12px;border-radius:12px;color:#5f7087;font-size:12px;line-height:1.5}
+.actions{display:flex;gap:7px;flex-wrap:wrap}.kicker{color:var(--navy);font-size:11px;font-weight:900;letter-spacing:.6px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.top{padding:0 14px}.brand{font-size:19px}.grid{grid-template-columns:1fr 1fr}.wrap{padding:0 12px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const SUPABASE_URL='https://cbznvkijchjptsthumyb.supabase.co';
+const SUPABASE_KEY='sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG';
+const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:'danke-home-auth'}});
+let currentUser=null,currentProfile=null;
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]})}
+function eur(v){return Number(v||0).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'}
+function statusHtml(s){var m={requested:['requested','🕒 BEKLİYOR'],processing:['processing','⏳ İŞLEMDE'],paid:['paid','✅ ÖDENDİ'],rejected:['rejected','❌ REDDEDİLDİ'],cancelled:['rejected','❌ İPTAL']};var x=m[s]||['processing',s||'—'];return '<span class="status '+x[0]+'">'+x[1]+'</span>'}
+
+function loginView(msg){
+  document.getElementById('app').innerHTML='<div class="loginWrap"><div class="login"><div class="kicker">🏠 DANKE HOME</div><h1>Giriş Yap</h1><p>Bu uygulama Danke Kalenderden bağımsız çalışır. Sadece DANKE HOME hesap ve ödeme verilerini kullanır.</p><div class="field"><label>KULLANICI ADI</label><input id="u" autocomplete="username"></div><div class="field"><label>ŞİFRE</label><input id="p" type="password" autocomplete="current-password" onkeydown="if(event.key===\\'Enter\\')doLogin()"></div><button class="btn primary full" onclick="doLogin()">Giriş Yap</button><div class="msg" id="msg">'+esc(msg||'')+'</div></div></div>';
+}
+async function doLogin(){
+  var u=(document.getElementById('u')?.value||'').trim().toLowerCase(),p=document.getElementById('p')?.value||'',m=document.getElementById('msg');
+  if(!u||!p){if(m)m.textContent='Kullanıcı adı ve şifre gerekli.';return}
+  try{
+    if(m)m.textContent='Giriş yapılıyor…';
+    var a=await supabase.rpc('get_login_email',{p_username:u}); if(a.error)throw a.error; if(!a.data)throw new Error('Kullanıcı bulunamadı.');
+    var b=await supabase.auth.signInWithPassword({email:a.data,password:p}); if(b.error)throw b.error;
+    var c=await supabase.rpc('get_my_profile'); if(c.error)throw c.error;
+    currentUser=b.data.user; currentProfile=Array.isArray(c.data)?c.data[0]:c.data;
+    if(!currentProfile || !currentProfile.is_active)throw new Error('Bu hesap pasif durumda.');
+    if(currentProfile.role!=='home_agent'&&currentProfile.role!=='admin')throw new Error('Bu hesap DANKE HOME için yetkili değil.');
+    render();
+  }catch(e){try{await supabase.auth.signOut()}catch(_){ } loginView(e?.message||'Giriş yapılamadı.')}
+}
+async function logout(){try{await supabase.auth.signOut()}catch(_){ }currentUser=null;currentProfile=null;loginView('')}
+
+function shell(content){document.getElementById('app').innerHTML='<header class="top"><div class="brand">DANKE <span>HOME</span></div><div class="userbar"><span>'+esc(currentProfile?.full_name||currentProfile?.username||'')+'</span><button class="logout" onclick="logout()">Çıkış</button></div></header><main class="wrap">'+content+'</main>'}
+
+async function render(){if(!currentProfile)return loginView('');if(currentProfile.role==='admin')return renderAdmin();return renderAgent()}
+
+async function renderAgent(){
+  try{
+    var uid=currentUser.id;
+    var q=await Promise.all([
+      supabase.from('home_agent_balances').select('*').eq('home_agent_id',uid).maybeSingle(),
+      supabase.from('home_earnings').select('*').eq('home_agent_id',uid).order('approved_at',{ascending:false}).limit(50),
+      supabase.from('home_agent_adjustments').select('*').eq('home_agent_id',uid).order('created_at',{ascending:false}).limit(50),
+      supabase.from('home_payout_requests').select('*').eq('home_agent_id',uid).order('requested_at',{ascending:false}).limit(50),
+      supabase.from('home_agents').select('appointment_rate_eur,account_holder,iban,pay_model,account_status').eq('profile_id',uid).maybeSingle()
+    ]);
+    q.forEach(function(x){if(x.error)throw x.error});
+    var bal=q[0].data||{},earn=q[1].data||[],adj=q[2].data||[],pay=q[3].data||[],home=q[4].data||{};
+    var approved=earn.filter(function(x){return x.earning_status==='earned'}).length;
+    var earningsHtml=earn.map(function(x){return '<tr><td>'+new Date(x.approved_at||x.created_at).toLocaleDateString('tr-TR')+'</td><td>'+esc(x.campaign)+'</td><td><b>+'+eur(x.amount_eur)+'</b></td></tr>'}).join('')||'<tr><td colspan="3">Henüz kayıt yok.</td></tr>';
+    var adjHtml=adj.map(function(x){var plus=['bonus','credit'].includes(x.adjustment_type);return '<tr><td>'+new Date(x.created_at).toLocaleDateString('tr-TR')+'</td><td>'+esc(x.adjustment_type)+'<br><span style="color:#748096">'+esc(x.reason||'')+'</span></td><td>'+(plus?'+':'−')+eur(x.amount_eur)+'</td></tr>'}).join('')||'<tr><td colspan="3">Henüz işlem yok.</td></tr>';
+    var payHtml=pay.map(function(x){return '<tr><td>'+new Date(x.requested_at).toLocaleString('tr-TR')+'</td><td><b>'+eur(x.amount_eur)+'</b></td><td>'+statusHtml(x.status)+(x.payment_reference?'<div style="color:#748096;font-size:10px">Ref: '+esc(x.payment_reference)+'</div>':'')+'</td></tr>'}).join('')||'<tr><td colspan="3">Henüz ödeme talebi yok.</td></tr>';
+    shell('<div class="head"><div><h1>Hoş geldin, '+esc(currentProfile.full_name||currentProfile.username)+'</h1><p>Home Agent çalışma ve ödeme paneli</p></div></div><div class="grid">'+
+      '<div class="card"><label>ÇEKİLEBİLİR BAKİYE</label><div class="money">'+eur(bal.available_balance)+'</div><div class="sub">Hazır bakiye</div><button class="btn primary full" onclick="requestPayout()">💶 Ödeme Talep Et</button></div>'+
+      '<div class="card"><label>TOPLAM KAZANÇ</label><div class="money">'+eur(bal.total_earned)+'</div><div class="sub">'+approved+' onaylı Termin</div></div>'+
+      '<div class="card"><label>OK BAŞINA</label><div class="money">'+eur(home.appointment_rate_eur)+'</div><div class="sub">Kişisel ücret</div></div>'+
+      '<div class="card"><label>BEKLEYEN ÖDEME</label><div class="money">'+eur(bal.pending_payout)+'</div><div class="sub">'+esc(home.account_holder||'')+' · '+esc(home.iban||'')+'</div></div></div>'+
+      '<div class="panel"><h3>Son onaylı Terminler</h3><div class="tableWrap"><table class="table"><thead><tr><th>Tarih</th><th>Kampanya</th><th>Tutar</th></tr></thead><tbody>'+earningsHtml+'</tbody></table></div></div>'+
+      '<div class="panel"><h3>Bonus / Ceza / Kesinti / Avans</h3><div class="tableWrap"><table class="table"><thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th></tr></thead><tbody>'+adjHtml+'</tbody></table></div></div>'+
+      '<div class="panel"><h3>Ödeme Geçmişi</h3><div class="tableWrap"><table class="table"><thead><tr><th>Tarih</th><th>Tutar</th><th>Durum</th></tr></thead><tbody>'+payHtml+'</tbody></table></div></div>'
+    );
+  }catch(e){shell('<div class="panel"><b>DANKE HOME açılamadı:</b> '+esc(e?.message||e)+'</div>')}
+}
+async function requestPayout(){
+  try{
+    var b=await supabase.from('home_agent_balances').select('available_balance').eq('home_agent_id',currentUser.id).maybeSingle();if(b.error)throw b.error;
+    var available=Number(b.data?.available_balance||0);if(available<=0)return alert('Şu anda çekilebilir bakiyen yok.');
+    var raw=prompt('Ne kadar ödeme talep etmek istiyorsun?\\nBakiye: '+eur(available),available.toFixed(2));if(raw===null)return;
+    var amount=Number(String(raw).replace(',','.'));if(!Number.isFinite(amount)||amount<=0||amount>available)return alert('Geçerli bir tutar gir.');
+    var x=await supabase.rpc('home_request_payout',{p_amount:amount});if(x.error)throw x.error;alert('Ödeme talebin oluşturuldu.');renderAgent();
+  }catch(e){alert('Ödeme talebi oluşturulamadı: '+(e?.message||e))}
+}
+async function renderAdmin(){
+  try{
+    var q=await Promise.all([
+      supabase.from('profiles').select('id,full_name,username,email,is_active').eq('role','home_agent').eq('is_active',true).order('full_name'),
+      supabase.from('home_agents').select('profile_id,account_status,account_holder,iban,appointment_rate_eur'),
+      supabase.from('home_agent_balances').select('*'),
+      supabase.from('home_payout_requests').select('*').order('requested_at',{ascending:false}).limit(100)
+    ]);
+    q.forEach(function(x){if(x.error)throw x.error});
+    var profiles=q[0].data||[],homes=q[1].data||[],balances=q[2].data||[],payouts=q[3].data||[];
+    var hm=new Map(homes.map(function(x){return [x.profile_id,x]})),bm=new Map(balances.map(function(x){return [x.home_agent_id,x]})),pm=new Map(profiles.map(function(x){return [x.id,x]}));
+    var agentRows=profiles.map(function(x){var h=hm.get(x.id)||{},b=bm.get(x.id)||{};return '<tr><td><b>'+esc(x.full_name||x.username)+'</b><div style="color:#748096">'+esc(x.username)+'</div></td><td>'+eur(b.total_earned)+'</td><td>'+eur(b.available_balance)+'</td><td>'+eur(h.appointment_rate_eur)+'</td><td>'+esc(h.account_holder||'')+'<br>'+esc(h.iban||'')+'</td></tr>'}).join('')||'<tr><td colspan="5">Home Agent bulunmuyor.</td></tr>';
+    var payoutRows=payouts.map(function(x){var p=pm.get(x.home_agent_id);return '<tr><td>'+new Date(x.requested_at).toLocaleString('tr-TR')+'</td><td><b>'+esc(p?.full_name||p?.username||'Home Agent')+'</b><div style="color:#748096">'+esc(x.iban_snapshot||'')+'</div></td><td>'+eur(x.amount_eur)+'</td><td>'+statusHtml(x.status)+'</td><td>'+(x.status==='requested'?'<button class="btn primary" onclick="setPayout(\''+x.id+'\',\'processing\')">İşleme Al</button> <button class="btn red" onclick="setPayout(\''+x.id+'\',\'rejected\')">Reddet</button>':x.status==='processing'?'<button class="btn green" onclick="markPaid(\''+x.id+'\')">✅ Ödendi & Dekont</button> <button class="btn red" onclick="setPayout(\''+x.id+'\',\'rejected\')">Reddet</button>':'')+'</td></tr>'}).join('')||'<tr><td colspan="5">Henüz ödeme talebi yok.</td></tr>';
+    shell('<div class="head"><div><h1>🏠 DANKE HOME</h1><p>Home Agent yönetimi · Danke Kalenderden bağımsız</p></div></div><div class="note"><b>Bağımsız yapı:</b> Bu uygulama kendi sayfasında çalışır. Danke Kalender koduna ve günlük takvim ekranına bağlı değildir.</div>'+
+      '<div class="panel"><h3>Home Agentler</h3><div class="tableWrap"><table class="table"><thead><tr><th>Personel</th><th>Toplam Kazanç</th><th>Çekilebilir</th><th>OK Başına</th><th>Hesap</th></tr></thead><tbody>'+agentRows+'</tbody></table></div></div>'+
+      '<div class="panel"><h3>💶 Auszahlungen</h3><div class="tableWrap"><table class="table"><thead><tr><th>Talep</th><th>Personel / IBAN</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>'+payoutRows+'</tbody></table></div></div>'
+    );
+  }catch(e){shell('<div class="panel"><b>DANKE HOME yönetimi açılamadı:</b> '+esc(e?.message||e)+'</div>')}
+}
+async function setPayout(id,status){
+  try{var note=status==='rejected'?(prompt('Red nedeni (opsiyonel):','')||null):null;var x=await supabase.from('home_payout_requests').update({status:status,processed_at:new Date().toISOString(),processed_by:currentUser.id,admin_note:note}).eq('id',id);if(x.error)throw x.error;renderAdmin()}catch(e){alert('Ödeme durumu güncellenemedi: '+(e?.message||e))}
+}
+async function markPaid(id){
+  var input=document.createElement('input');input.type='file';input.accept='.pdf,.jpg,.jpeg,.png,.webp';input.style.display='none';document.body.appendChild(input);input.click();
+  input.onchange=async function(){
+    var file=input.files?.[0];input.remove();if(!file)return;if(file.size>10*1024*1024)return alert('Dekont en fazla 10 MB olabilir.');
+    try{var ref=prompt('Ödeme referansı (opsiyonel):','')||'';var path=currentUser.id+'/'+id+'-'+Date.now()+'-'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');var up=await supabase.storage.from('home-payout-receipts').upload(path,file,{upsert:false,contentType:file.type||'application/octet-stream'});if(up.error)throw up.error;var x=await supabase.from('home_payout_requests').update({status:'paid',processed_at:new Date().toISOString(),processed_by:currentUser.id,receipt_path:path,receipt_uploaded_at:new Date().toISOString(),payment_reference:ref||null}).eq('id',id);if(x.error)throw x.error;alert('Ödeme kaydı kapatıldı ve dekont kaydedildi.');renderAdmin()}catch(e){alert('Ödeme/dekont işlemi başarısız: '+(e?.message||e))}
+  };
+}
+(async function(){try{var s=await supabase.auth.getSession();if(s.data?.session){currentUser=s.data.session.user;var p=await supabase.rpc('get_my_profile');currentProfile=Array.isArray(p.data)?p.data[0]:p.data;if(currentProfile?.is_active&&(currentProfile.role==='admin'||currentProfile.role==='home_agent'))render();else loginView('')}else loginView('')}catch(e){loginView(e?.message||'Giriş yapılamadı.')}})();
+</script>
+</body>
+</html>
