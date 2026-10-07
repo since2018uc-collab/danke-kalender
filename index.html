@@ -568,52 +568,48 @@ function selectDate(v){if(!v)return;viewDate=v;render()}
 function isTomorrow(){return viewDate===tomorrow()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function campObj(n){return campaigns.find(c=>c[0]===n)||campaigns[0]}
-function login(){document.getElementById('app').innerHTML=`<div class="login"><div class="loginBox"><div class="loginLogo">DANKE KALENDER</div><h1>Giriş Yap</h1><p>Rota ve termin planına erişmek için giriş yapın.</p><label>Kullanıcı adı</label><input id="lu" autocomplete="username"><label>Şifre</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"><button class="action blue" onclick="doLogin()">Giriş Yap</button></div></div>`}
+function login(){document.getElementById('app').innerHTML=`<div class="login"><div class="loginBox"><div class="loginLogo">DANKE KALENDER</div><h1>Giriş Yap</h1><p>Rota ve termin planına güvenli giriş yapmak için kullanıcı bilgilerinizle giriş yapın.</p><label>Kullanıcı adı</label><input id="lu" autocomplete="username"><label>Şifre</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"><button id="loginBtn" class="action blue" onclick="doLogin()">Giriş Yap</button><div id="loginStatus" style="margin-top:10px;font-size:12px;color:#6b778b;text-align:center"></div></div></div>`}
 async function doLogin(){
-  let u=lu.value.trim(),p=lp.value,x=db.employees.find(e=>e.u===u&&e.p===p);
-  if(!x)return alert('Kullanıcı adı veya şifre hatalı.');
-  db.user=x;save();
-  if(x.role==='admin'){
-    try{
-      const r=await fetch('https://cbznvkijchjptsthumyb.supabase.co/functions/v1/danke-home-admin',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','apikey':'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'},
-        body:JSON.stringify({action:'login',username:u,password:p})
-      });
-      const j=await r.json();
-      if(j?.ok&&j?.token) sessionStorage.setItem('dankeHomeAdminToken',j.token);
-      else sessionStorage.removeItem('dankeHomeAdminToken');
-    }catch(e){sessionStorage.removeItem('dankeHomeAdminToken');}
-  } else if(x.role==='home_agent'){
-    try{
-      const supabase=window.supabase.createClient(
-        'https://cbznvkijchjptsthumyb.supabase.co',
-        'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG',
-        {auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}}
-      );
-
-      // Danke Kalender create-user creates the Auth identity as:
-      // username@danke-work.de. The profile's public/contact e-mail is separate.
-      const authEmail=(x.u||u).toLowerCase()+'@danke-work.de';
-
-      const {data,error}=await supabase.auth.signInWithPassword({
-        email:authEmail,
-        password:p
-      });
-
-      if(error||!data?.session){
-        console.error('Home Agent Supabase Auth:',{
-          authEmail,
-          message:error?.message||'Session oluşturulamadı'
-        });
-      }
-    }catch(e){
-      console.error('Home Agent Supabase Auth:',e);
-    }
+  const u=(document.getElementById('lu')?.value||'').trim();
+  const p=document.getElementById('lp')?.value||'';
+  const btn=document.getElementById('loginBtn');
+  const st=document.getElementById('loginStatus');
+  if(!u||!p){ if(st)st.textContent='Kullanıcı adı ve şifre gerekli.'; return; }
+  if(btn){btn.disabled=true;btn.textContent='Giriş yapılıyor…';}
+  try{
+    const {data:emailData,error:emailErr}=await dkSupabase.rpc('get_login_email',{p_username:u});
+    if(emailErr)throw emailErr;
+    const email=emailData;
+    if(!email)throw new Error('Kullanıcı adı veya şifre hatalı.');
+    const {data:authData,error:authErr}=await dkSupabase.auth.signInWithPassword({email,password:p});
+    if(authErr)throw authErr;
+    dkAuthSession=authData.session||null;
+    const authUser=authData.user;
+    const {data:profileData,error:profileErr}=await dkSupabase.rpc('get_my_profile');
+    if(profileErr)throw profileErr;
+    const profile=Array.isArray(profileData)?profileData[0]:profileData;
+    if(!profile)throw new Error('Profil bulunamadı.');
+    if(profile.is_active!==true)throw new Error('Bu hesap pasif durumda.');
+    const local=(db.employees||[]).find(e=>e.u===profile.username)||{};
+    db.user={...local,u:profile.username,name:profile.full_name,role:profile.role,authId:profile.id,email:profile.email||email};
+    if(!Array.isArray(db.employees))db.employees=[];
+    const idx=db.employees.findIndex(e=>e.u===profile.username);
+    const merged={...local,u:profile.username,name:profile.full_name,role:profile.role};
+    if(idx>=0)db.employees[idx]={...db.employees[idx],...merged}; else db.employees.push(merged);
+    save();
+    await syncOnlineProfiles();
+    if(st)st.textContent='Online bağlantı başarılı.';
+    render();
+  }catch(e){
+    console.error(e);
+    if(st)st.textContent=e?.message||'Giriş yapılamadı.';
+    try{await dkSupabase.auth.signOut();}catch(_){}
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Giriş Yap';}
   }
-  render();
 }
-function logout(){db.user=null;save();login()}
+async function logout(){try{await dkSupabase.auth.signOut();}catch(e){}dkAuthSession=null;db.user=null;save();login()}
+window.doLogin=doLogin;window.logout=logout;
 function ensureSlots(){/* Rotaları artık sadece Admin açar. */}
 function booking(slot){return db.bookings.find(b=>b.slotId===slot.id)}
 function statusText(s){return s==='approved'?'ONAYLANDI':s==='rejected'?'REDDEDİLDİ':s==='unreachable'?'ULAŞILAMADI':'KONTROL BEKLİYOR'}
