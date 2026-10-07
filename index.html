@@ -284,6 +284,15 @@ header{
 
 
 .auditFilters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin:14px 0}.auditFilters input,.auditFilters select{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #d1dbe8;border-radius:9px;background:#fff;font:inherit;color:#17304d}.auditTableWrap{border:1px solid #e1e7ef;border-radius:12px;overflow:auto;background:#fff;max-height:58vh}.auditTableHead,.auditRow{display:grid;grid-template-columns:150px 150px 220px minmax(240px,1fr);gap:10px;align-items:start;padding:9px 10px}.auditTableHead{position:sticky;top:0;background:#f6f8fb;border-bottom:1px solid #e2e7ee;font-size:10px;font-weight:900;color:#68778d;z-index:1}.auditRow{border-bottom:1px solid #edf1f5;font-size:12px}.auditRow:last-child{border-bottom:0}.auditRow b{display:block;color:#17304d}.auditRole{display:block;font-size:10px;color:#7a8799;margin-top:2px}.auditWhen{font-variant-numeric:tabular-nums;color:#58667a}.auditDetail{color:#46566e;line-height:1.4}.auditEmpty{padding:22px;text-align:center;color:#7a8799}.auditList{margin-top:14px;max-height:58vh;overflow:auto;border-top:1px solid #e6ebf1}.auditItem{padding:11px 2px;border-bottom:1px solid #edf1f5}.auditItemTop{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.auditItemTop span{font-size:10px;color:#7a8799}.auditItem .auditDetail{margin-top:5px;font-size:12px}@media(max-width:800px){.auditFilters{grid-template-columns:1fr 1fr}.auditFilters input:first-child,.auditFilters select{grid-column:1/-1}.auditTableHead,.auditRow{grid-template-columns:105px 120px 170px minmax(220px,1fr)}}
+
+.homeAction{background:linear-gradient(135deg,#f6c343,#e8a51f)!important;color:#0b3972!important;border-color:#e0a72b!important;font-weight:900!important}
+
+.homeAgentBalanceGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+.homeAgentMoneyCard{background:#f7f9fc;border:1px solid #e1e8f0;border-radius:12px;padding:14px}.homeAgentMoneyCard label{display:block;font-size:10px;color:#68768a;font-weight:900}.homeAgentMoneyCard b{display:block;font-size:23px;margin-top:5px}.homeAgentMoneyCard span{display:block;font-size:10px;color:#7a8799;margin-top:5px}.homeAgentMoneyCard.primaryCard{background:#eff9f4;border-color:#bde7ce}.homeAgentMoneyCard.primaryCard b{color:#16935a}.homeAgentMoneyCard .action{margin-top:10px}
+.homeAgentGrid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.homePlus{color:#15965a}.homeMinus{color:#df3f4b}
+.homeAgentInfoBar{display:grid;grid-template-columns:1fr 1.7fr 1fr;gap:10px;margin-top:12px;background:#f7f9fc;border:1px solid #e1e8f0;border-radius:12px;padding:12px}.homeAgentInfoBar span{display:block;font-size:10px;color:#748096}.homeAgentInfoBar b{display:block;margin-top:4px;font-size:12px}
+@media(max-width:850px){.homeAgentBalanceGrid{grid-template-columns:1fr 1fr}.homeAgentGrid2{grid-template-columns:1fr}.homeAgentInfoBar{grid-template-columns:1fr}.homeAgentMoneyCard b{font-size:20px}}
+
 </style>
 <style>
 .payrollSection{background:#fff;border:1px solid #dfe6f0;border-radius:16px;padding:14px 16px;margin:0 0 14px;box-shadow:0 2px 8px rgba(17,42,70,.05)}
@@ -312,16 +321,9 @@ header{
 @media(max-width:600px){.hrStats{grid-template-columns:repeat(2,minmax(105px,1fr))}.hrSection{padding:12px}.hrStats .hrStat b{font-size:16px}}
 </style>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
 </head>
 <body>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-const DK_SUPABASE_URL = "https://cbznvkijchjptsthumyb.supabase.co";
-const DK_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG";
-const dkSupabase = window.supabase.createClient(DK_SUPABASE_URL, DK_SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'danke-kalender-auth' } });
-window.dkSupabase = dkSupabase;
-let dkAuthSession = null;
-</script>
 <div id="app"></div>
 <script>
 const campaigns=[
@@ -343,26 +345,13 @@ let db=JSON.parse(localStorage.getItem('dk_v2')||'null')||{
 };
 db.messages=Array.isArray(db.messages)?db.messages:[];
 if(!Array.isArray(db.deletedBookings))db.deletedBookings=[];
+// V80 test-copy compatibility: keep the existing Danke Kalender Admin username,
+// while accepting the currently designated Admin password for this test build.
+const dkLocalAdmin=db.employees.find(e=>e.u==='admin');
+if(dkLocalAdmin && dkLocalAdmin.p==='admin123') dkLocalAdmin.p='SinceCem278255.';
 const WEEK_DAYS=[['1','Pazartesi'],['2','Salı'],['3','Çarşamba'],['4','Perşembe'],['5','Cuma'],['6','Cumartesi'],['0','Pazar']];
 function defaultWorkSchedule(){let x={};WEEK_DAYS.forEach(([k])=>x[k]={enabled:['1','2','3','4','5'].includes(k),start:'08:00',end:'18:00',breaks:[{start:'10:00',end:'10:15',label:'Mola 1'},{start:'12:00',end:'13:00',label:'Öğle Molası'},{start:'15:00',end:'15:15',label:'Mola 2'}]});return x}
 if(!db.workSchedule||typeof db.workSchedule!=='object')db.workSchedule=defaultWorkSchedule();
- async function syncOnlineWorkSchedule(){
-  try{
-    const {data,error}=await dkSupabase.rpc('get_work_schedule');
-    if(error)throw error;
-
-    if(data && typeof data==='object'){
-      db.workSchedule=data;
-      save();
-      return true;
-    }
-
-    return false;
-  }catch(e){
-    console.warn('Online mesai çizelgesi alınamadı:',e);
-    return false;
-  }
-}
 if(!db.breakNoticeSeen||typeof db.breakNoticeSeen!=='object')db.breakNoticeSeen={};
 
 /* V73: notification sound engine.
@@ -475,7 +464,9 @@ function getCurrentUnreadNotificationIds(){
   db.announcements=Array.isArray(db.announcements)?db.announcements:[];
   const me=db.user.u;
   db.messages.filter(m=>m.to===me&&!m.read).forEach(m=>ids.push('msg:'+m.id));
-  db.announcements.filter(a=>String(a.byAuthId||'')!==String(db.user.authId||'') && !(a.reads||[]).includes(me)).forEach(a=>ids.push('ann:'+a.id));
+  if(db.user.role!=='admin'){
+    db.announcements.filter(a=>!(a.reads||[]).includes(me)).forEach(a=>ids.push('ann:'+a.id));
+  }
   const e=(db.employees||[]).find(x=>x.u===me);
   (e?.payroll?.notifications||[]).filter(n=>!n.read).forEach(n=>ids.push('priv:'+n.id));
   return ids;
@@ -485,19 +476,12 @@ function primeNotificationSoundState(){
   dkSeenNotificationIds=new Set(getCurrentUnreadNotificationIds());
 }
 
-async function checkForNewNotifications(){
+function checkForNewNotifications(){
   if(!db.user)return;
-  if(dkCommunicationReady){try{await syncOnlineCommunication({renderAfter:false});}catch(e){}}
-
-  // Online mode is authoritative. Do not replace fresh Supabase data with stale localStorage.
-  if(dkAuthSession || dkCommunicationReady){
-    try{ await showUnreadAnnouncements(false); }catch(e){}
-  }
-
-  // Re-read the latest shared localStorage state only for non-online legacy notifications.
+  // Re-read the latest shared localStorage state so an open second tab can trigger the sound too.
   try{
     const latest=JSON.parse(localStorage.getItem('dk_v2')||'null');
-    if(!(dkAuthSession || dkCommunicationReady) && latest && typeof latest==='object'){
+    if(latest && typeof latest==='object'){
       const hadUser=db.user.u;
       db=latest;
       db.user=(db.employees||[]).find(e=>e.u===hadUser)||db.user;
@@ -516,7 +500,7 @@ async function checkForNewNotifications(){
     else if(added.some(x=>x.startsWith('ann:')))playNotificationSound('announcement');
     else playNotificationSound('private');
     // Refresh the UI so the modal is raised without waiting for another action.
-    if(!document.getElementById('messagesModal'))render();
+    render();
   }
   dkSeenNotificationIds=current;
 }
@@ -584,56 +568,59 @@ function selectDate(v){if(!v)return;viewDate=v;render()}
 function isTomorrow(){return viewDate===tomorrow()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function campObj(n){return campaigns.find(c=>c[0]===n)||campaigns[0]}
-function login(){document.getElementById('app').innerHTML=`<div class="login"><div class="loginBox"><div class="loginLogo">DANKE KALENDER</div><h1>Giriş Yap</h1><p>Rota ve termin planına güvenli giriş yapmak için kullanıcı bilgilerinizle giriş yapın.</p><label>Kullanıcı adı</label><input id="lu" autocomplete="username"><label>Şifre</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"><button id="loginBtn" class="action blue" onclick="doLogin()">Giriş Yap</button><div id="loginStatus" style="margin-top:10px;font-size:12px;color:#6b778b;text-align:center"></div></div></div>`}
+function login(){document.getElementById('app').innerHTML=`<div class="login"><div class="loginBox"><div class="loginLogo">DANKE KALENDER</div><h1>Giriş Yap</h1><p>Rota ve termin planına erişmek için giriş yapın.</p><label>Kullanıcı adı</label><input id="lu" autocomplete="username"><label>Şifre</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"><button class="action blue" onclick="doLogin()">Giriş Yap</button></div></div>`}
 async function doLogin(){
-  const u=(document.getElementById('lu')?.value||'').trim();
-  const p=document.getElementById('lp')?.value||'';
-  const btn=document.getElementById('loginBtn');
-  const st=document.getElementById('loginStatus');
-  if(!u||!p){ if(st)st.textContent='Kullanıcı adı ve şifre gerekli.'; return; }
-  if(btn){btn.disabled=true;btn.textContent='Giriş yapılıyor…';}
-  try{
-    const {data:emailData,error:emailErr}=await dkSupabase.rpc('get_login_email',{p_username:u});
-    if(emailErr)throw emailErr;
-    const email=emailData;
-    if(!email)throw new Error('Kullanıcı adı veya şifre hatalı.');
-    const {data:authData,error:authErr}=await dkSupabase.auth.signInWithPassword({email,password:p});
-    if(authErr)throw authErr;
-    dkAuthSession=authData.session||null;
-    const authUser=authData.user;
-    const {data:profileData,error:profileErr}=await dkSupabase.rpc('get_my_profile');
-    if(profileErr)throw profileErr;
-    const profile=Array.isArray(profileData)?profileData[0]:profileData;
-    if(!profile)throw new Error('Profil bulunamadı.');
-    if(profile.is_active!==true)throw new Error('Bu hesap pasif durumda.');
-    const local=(db.employees||[]).find(e=>e.u===profile.username)||{};
-    db.user={...local,u:profile.username,name:profile.full_name,role:profile.role,authId:profile.id,email:profile.email||email};
-    if(!Array.isArray(db.employees))db.employees=[];
-    const idx=db.employees.findIndex(e=>e.u===profile.username);
-    const merged={...local,u:profile.username,name:profile.full_name,role:profile.role};
-    if(idx>=0)db.employees[idx]={...db.employees[idx],...merged}; else db.employees.push(merged);
-    save();
-    await syncOnlineProfiles();
-    if(st)st.textContent='Online bağlantı başarılı.';
-    render();
-  }catch(e){
-    console.error(e);
-    if(st)st.textContent=e?.message||'Giriş yapılamadı.';
-    try{await dkSupabase.auth.signOut();}catch(_){}
-  }finally{
-    if(btn){btn.disabled=false;btn.textContent='Giriş Yap';}
+  let u=lu.value.trim(),p=lp.value,x=db.employees.find(e=>e.u===u&&e.p===p);
+  if(!x)return alert('Kullanıcı adı veya şifre hatalı.');
+  db.user=x;save();
+  if(x.role==='admin'){
+    try{
+      const r=await fetch('https://cbznvkijchjptsthumyb.supabase.co/functions/v1/danke-home-admin',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'},
+        body:JSON.stringify({action:'login',username:u,password:p})
+      });
+      const j=await r.json();
+      if(j?.ok&&j?.token) sessionStorage.setItem('dankeHomeAdminToken',j.token);
+      else sessionStorage.removeItem('dankeHomeAdminToken');
+    }catch(e){sessionStorage.removeItem('dankeHomeAdminToken');}
+  } else if(x.role==='home_agent'){
+    try{
+      const supabase=window.supabase.createClient(
+        'https://cbznvkijchjptsthumyb.supabase.co',
+        'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG',
+        {auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}}
+      );
+
+      // Danke Kalender create-user creates the Auth identity as:
+      // username@danke-work.de. The profile's public/contact e-mail is separate.
+      const authEmail=(x.u||u).toLowerCase()+'@danke-work.de';
+
+      const {data,error}=await supabase.auth.signInWithPassword({
+        email:authEmail,
+        password:p
+      });
+
+      if(error||!data?.session){
+        console.error('Home Agent Supabase Auth:',{
+          authEmail,
+          message:error?.message||'Session oluşturulamadı'
+        });
+      }
+    }catch(e){
+      console.error('Home Agent Supabase Auth:',e);
+    }
   }
+  render();
 }
-async function logout(){try{await dkSupabase.auth.signOut();}catch(e){}dkAuthSession=null;db.user=null;save();login()}
-window.doLogin=doLogin;window.logout=logout;
+function logout(){db.user=null;save();login()}
 function ensureSlots(){/* Rotaları artık sadece Admin açar. */}
 function booking(slot){return db.bookings.find(b=>b.slotId===slot.id)}
 function statusText(s){return s==='approved'?'ONAYLANDI':s==='rejected'?'REDDEDİLDİ':s==='unreachable'?'ULAŞILAMADI':'KONTROL BEKLİYOR'}
 function card(slot){let c=campObj(slot.campaign),b=booking(slot),status=b?.status;let person=b?esc(b.employeeName):'<span class="emptyLabel">Termin ekle</span>';let drag=(b&&canDragBooking(b))?` draggable="true" ondragstart="dragStart(event,'${b.id}')" ondragend="dragEnd()"`:``;let click=b?`openBooking('${b.id}')`:`newBooking('${slot.id}')`;return `<div class="card ${c[2]} ${b?'filled draggable-card':'emptyCard'}" ${drag} onclick="event.stopPropagation();${click}">${status?`<span class="statusBadge ${status}">${statusText(status)}</span>`:''}<div class="campaign">${c[0]}</div><div class="divider"></div><div class="person">${person}</div></div>`}
-function header(){let initials=esc((db.user.name||'DK').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase());return `<header><div class="logo" aria-label="Danke Kalender"><svg class="brandLogo" viewBox="0 0 258 64" role="img" aria-label="Danke Kalender"><defs><linearGradient id="dkGold" x1="0" x2="1"><stop offset="0" stop-color="#f0b72e"/><stop offset="1" stop-color="#ffd75a"/></linearGradient><linearGradient id="dkBlue" x1="0" x2="1"><stop offset="0" stop-color="#0a3a73"/><stop offset="1" stop-color="#195b9f"/></linearGradient></defs><g transform="translate(3 4)"><rect x="0" y="2" width="52" height="50" rx="11" fill="#f3f6fa" stroke="#ffd34f" stroke-width="2"/><rect x="0" y="2" width="52" height="15" rx="11" fill="url(#dkBlue)"/><rect x="0" y="10" width="52" height="7" fill="url(#dkBlue)"/><circle cx="13" cy="9.5" r="2.2" fill="#ffd34f"/><circle cx="39" cy="9.5" r="2.2" fill="#ffd34f"/><rect x="9" y="24" width="8" height="8" rx="2" fill="#f7c84b"/><rect x="22" y="24" width="8" height="8" rx="2" fill="#8bb8ee"/><rect x="35" y="24" width="8" height="8" rx="2" fill="#e9a7c3"/><rect x="9" y="36" width="8" height="8" rx="2" fill="#9ad9d6"/><rect x="22" y="36" width="8" height="8" rx="2" fill="#c7b1ee"/><rect x="35" y="36" width="8" height="8" rx="2" fill="#f0c77c"/><circle cx="46" cy="47" r="9" fill="#ffd34f" stroke="#ffffff" stroke-width="2"/><path d="M46 42v5l3 2" stroke="#0a3a73" stroke-width="2" stroke-linecap="round" fill="none"/></g><text x="66" y="29" font-family="Arial,Helvetica,sans-serif" font-size="28" font-weight="900" letter-spacing=".3" fill="#ffd34f">Danke</text><text x="66" y="49" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="2" fill="#ffffff">KALENDER</text><rect x="170" y="19" width="3" height="31" rx="1.5" fill="#ffd34f" opacity=".9"/></svg></div><div class="dateNav" aria-label="Tarih navigasyonu"><button onclick="shiftDay(-1)" aria-label="Önceki gün">‹</button><div class="dateText">${fmt(viewDate)}<small>${isTomorrow()?'Yarın':'Seçilen tarih'}</small><input class="datePicker" aria-label="Tarih seç" type="date" value="${viewDate}" onchange="selectDate(this.value)"></div><button onclick="shiftDay(1)" aria-label="Sonraki gün">›</button></div><div class="account" aria-label="Kullanıcı hesabı"><div class="accountAvatar">${initials}</div><div class="accountInfo"><div class="accountNameRow"><b>${esc(db.user.name)}</b><span class="accountRole">${db.user.role==='admin'?'Admin':'Agent'}</span></div><span><a href="#" onclick="openMyPayroll();return false">Maaşım</a><i class="accountSep">•</i><a class="${unreadMessageCount()?'messageAlert':''}" href="#" onclick="openMessages();return false">Mesajlar</a>${db.user.role==='admin'?`<i class="accountSep">•</i><a href="#" onclick="changeOwnPassword();return false">Şifre</a>`:''}<i class="accountSep">•</i><a href="#" onclick="logout();return false">Çıkış</a></span></div></div></header>`}
+function header(){let initials=esc((db.user.name||'DK').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase());return `<header><div class="logo" aria-label="Danke Kalender"><svg class="brandLogo" viewBox="0 0 258 64" role="img" aria-label="Danke Kalender"><defs><linearGradient id="dkGold" x1="0" x2="1"><stop offset="0" stop-color="#f0b72e"/><stop offset="1" stop-color="#ffd75a"/></linearGradient><linearGradient id="dkBlue" x1="0" x2="1"><stop offset="0" stop-color="#0a3a73"/><stop offset="1" stop-color="#195b9f"/></linearGradient></defs><g transform="translate(3 4)"><rect x="0" y="2" width="52" height="50" rx="11" fill="#f3f6fa" stroke="#ffd34f" stroke-width="2"/><rect x="0" y="2" width="52" height="15" rx="11" fill="url(#dkBlue)"/><rect x="0" y="10" width="52" height="7" fill="url(#dkBlue)"/><circle cx="13" cy="9.5" r="2.2" fill="#ffd34f"/><circle cx="39" cy="9.5" r="2.2" fill="#ffd34f"/><rect x="9" y="24" width="8" height="8" rx="2" fill="#f7c84b"/><rect x="22" y="24" width="8" height="8" rx="2" fill="#8bb8ee"/><rect x="35" y="24" width="8" height="8" rx="2" fill="#e9a7c3"/><rect x="9" y="36" width="8" height="8" rx="2" fill="#9ad9d6"/><rect x="22" y="36" width="8" height="8" rx="2" fill="#c7b1ee"/><rect x="35" y="36" width="8" height="8" rx="2" fill="#f0c77c"/><circle cx="46" cy="47" r="9" fill="#ffd34f" stroke="#ffffff" stroke-width="2"/><path d="M46 42v5l3 2" stroke="#0a3a73" stroke-width="2" stroke-linecap="round" fill="none"/></g><text x="66" y="29" font-family="Arial,Helvetica,sans-serif" font-size="28" font-weight="900" letter-spacing=".3" fill="#ffd34f">Danke</text><text x="66" y="49" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="2" fill="#ffffff">KALENDER</text><rect x="170" y="19" width="3" height="31" rx="1.5" fill="#ffd34f" opacity=".9"/></svg></div><div class="dateNav" aria-label="Tarih navigasyonu"><button onclick="shiftDay(-1)" aria-label="Önceki gün">‹</button><div class="dateText">${fmt(viewDate)}<small>${isTomorrow()?'Yarın':'Seçilen tarih'}</small><input class="datePicker" aria-label="Tarih seç" type="date" value="${viewDate}" onchange="selectDate(this.value)"></div><button onclick="shiftDay(1)" aria-label="Sonraki gün">›</button></div><div class="account" aria-label="Kullanıcı hesabı"><div class="accountAvatar">${initials}</div><div class="accountInfo"><div class="accountNameRow"><b>${esc(db.user.name)}</b><span class="accountRole">${db.user.role==='admin'?'Admin':db.user.role==='home_agent'?'Home Agent':'Agent'}</span></div><span>${db.user.role==='home_agent'?`<a href="#" onclick="openHomeAgentEarnings();return false">Kazancım</a>`:`<a href="#" onclick="openMyPayroll();return false">Maaşım</a>`}<i class="accountSep">•</i><a class="${unreadMessageCount()?'messageAlert':''}" href="#" onclick="openMessages();return false">Mesajlar</a>${db.user.role==='admin'?`<i class="accountSep">•</i><a href="#" onclick="changeOwnPassword();return false">Şifre</a>`:''}<i class="accountSep">•</i><a href="#" onclick="logout();return false">Çıkış</a></span></div></div></header>`}
 let breakNoticeTimer=null;
-function render(){if(!db.user)return login();ensureSlots();ensurePayrollData();db.user.role==='admin'?admin():employee();if(db.user.role==='admin'){setTimeout(updateAdminAgentReport,0);setTimeout(()=>{const b=document.getElementById('deletedCountBadge');if(b&&Array.isArray(db.deletedBookings)&&db.deletedBookings.length)b.textContent=` (${db.deletedBookings.length})`;},0);}setTimeout(()=>showUnreadAnnouncements(),250);setTimeout(showUnreadPrivateNotifications,80);setTimeout(showUnreadInternalMessageNotice,140);setTimeout(checkBreakNotification,250);if(!breakNoticeTimer)breakNoticeTimer=setInterval(checkBreakNotification,15000)}
-
+function render(){if(!db.user)return login();ensureSlots();ensurePayrollData();db.user.role==='admin'?admin():employee();if(db.user.role==='admin'){setTimeout(updateAdminAgentReport,0);setTimeout(()=>{const b=document.getElementById('deletedCountBadge');if(b&&Array.isArray(db.deletedBookings)&&db.deletedBookings.length)b.textContent=` (${db.deletedBookings.length})`;},0);}setTimeout(showUnreadAnnouncements,0);setTimeout(showUnreadPrivateNotifications,80);setTimeout(showUnreadInternalMessageNotice,140);setTimeout(checkBreakNotification,250);if(!breakNoticeTimer)breakNoticeTimer=setInterval(checkBreakNotification,15000)}
 function employee(){let d=viewDate,slots=db.slots.filter(s=>s.date===d);document.getElementById('app').innerHTML=header()+`<div class="wrap">${agentOwnMonthlyReport()}${grid(slots)}${rejectedBookings()}</div>`}
 function normalizeReportDate(v){
   if(!v)return '';
@@ -807,11 +794,41 @@ function updateAdminAgentReport(){
   }).sort((a,b)=>b.approved-a.approved||b.total-a.total||a.e.name.localeCompare(b.e.name,'tr'));
   const rangeLabel=`${new Date(from+'T12:00:00').toLocaleDateString('tr-TR')} – ${new Date(to+'T12:00:00').toLocaleDateString('tr-TR')}`;
   hint.textContent=`${rangeLabel} · Seçilen tarih aralığındaki tüm kullanıcı terminleri · En çok onaylı termin sayısından aşağıya doğru sıralanır.`;
-  body.innerHTML=rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${esc(r.e.name)}</b><span>${esc(r.e.u)} · ${r.e.role==='admin'?'Admin':'Agent'}</span></td><td>${r.total}</td><td class="approvedCount">${r.approved}</td><td class="rejectedCount">${r.rejected}</td><td>${r.pending}</td><td>${r.unreachable}</td></tr>`).join(''):`<tr><td colspan="7">Henüz kullanıcı hesabı bulunmuyor.</td></tr>`;
+  body.innerHTML=rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${esc(r.e.name)}</b><span>${esc(r.e.u)} · ${r.e.role==='admin'?'Admin':r.e.role==='home_agent'?'Home Agent':'Agent'}</span></td><td>${r.total}</td><td class="approvedCount">${r.approved}</td><td class="rejectedCount">${r.rejected}</td><td>${r.pending}</td><td>${r.unreachable}</td></tr>`).join(''):`<tr><td colspan="7">Henüz kullanıcı hesabı bulunmuyor.</td></tr>`;
 }
 
 
-function admin(){let d=viewDate,slots=db.slots.filter(s=>s.date===d);document.getElementById('app').innerHTML=header()+`<div class="wrap"><div class="toolbar" style="justify-content:flex-end;margin-bottom:10px"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action gray" onclick="report()">Rapor</button><button class="action blue" onclick="manageUsers()">Personeller</button><button class="action gray" onclick="managePayrolls()">Maaşlar</button><button class="action gray" onclick="manageWorkSchedule()">Mesai</button><button class="action gray" onclick="manageAnnouncements()">Duyuru</button><button class="action gray" onclick="manageAuditLogs()">Geçmiş</button><button class="action dangerOutline" onclick="openDeletedBookings()">Silinenler<span id="deletedCountBadge"></span></button></div></div>${gridAdmin(slots)}${rejectedBookings()}<div class="adminBar"><div><label>AÇIK ROTA</label><b>${slots.length}</b></div><div><label>KONTROL BEKLEYENLER</label><b>${db.bookings.filter(b=>b.status==='pending').length}</b></div><div><label>ONAYLANAN</label><b style="color:#159653">${db.bookings.filter(b=>b.status==='approved').length}</b></div><div><label>REDDEDİLEN</label><b style="color:#d33">${db.bookings.filter(b=>b.status==='rejected').length}</b></div><div><label>ULAŞILAMADI</label><b style="color:#5b6472">${db.bookings.filter(b=>b.status==='unreachable').length}</b></div></div>${agentMonthlyReport()}</div>`}
+
+async function openDankeHomeAdmin(){
+  if(!db.user||db.user.role!=='admin')return;
+  try{
+    const supabase=window.supabase.createClient(
+      'https://cbznvkijchjptsthumyb.supabase.co',
+      'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'
+    );
+    let email=db.user.email||'';
+    if(!email){
+      const {data,error}=await supabase.rpc('get_login_email',{p_username:db.user.u});
+      if(error||!data){alert('DANKE HOME giriş bağlantısı kurulamadı.');return}
+      email=data;
+    }
+    const {data,error}=await supabase.auth.signInWithPassword({
+      email,
+      password:db.user.p||''
+    });
+    if(error||!data?.session){
+      alert('DANKE HOME Admin oturumu oluşturulamadı.');
+      return;
+    }
+    sessionStorage.setItem('dankeHomeReturn','1');
+    window.location.href='danke-home-admin.html';
+  }catch(e){
+    console.error(e);
+    alert('DANKE HOME bağlantısı kurulamadı.');
+  }
+}
+
+function admin(){let d=viewDate,slots=db.slots.filter(s=>s.date===d);document.getElementById('app').innerHTML=header()+`<div class="wrap"><div class="toolbar" style="justify-content:flex-end;margin-bottom:10px"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action gray" onclick="report()">Rapor</button><button class="action blue" onclick="manageUsers()">Personeller</button><button class="action gray" onclick="managePayrolls()">Maaşlar</button><button class="action gray" onclick="manageWorkSchedule()">Mesai</button><button class="action gray" onclick="manageAnnouncements()">Duyuru</button><button class="action gray" onclick="manageAuditLogs()">Geçmiş</button><button class="action dangerOutline" onclick="openDeletedBookings()">Silinenler<span id="deletedCountBadge"></span></button><button class="action homeAction" onclick="openDankeHomeAdmin()">🏠 DANKE HOME</button></div></div>${gridAdmin(slots)}${rejectedBookings()}<div class="adminBar"><div><label>AÇIK ROTA</label><b>${slots.length}</b></div><div><label>KONTROL BEKLEYENLER</label><b>${db.bookings.filter(b=>b.status==='pending').length}</b></div><div><label>ONAYLANAN</label><b style="color:#159653">${db.bookings.filter(b=>b.status==='approved').length}</b></div><div><label>REDDEDİLEN</label><b style="color:#d33">${db.bookings.filter(b=>b.status==='rejected').length}</b></div><div><label>ULAŞILAMADI</label><b style="color:#5b6472">${db.bookings.filter(b=>b.status==='unreachable').length}</b></div></div>${agentMonthlyReport()}</div>`}
 function gridAdmin(slots){
   let rows=defaultTimes.map(t=>{
     const byCol={};
@@ -819,7 +836,7 @@ function gridAdmin(slots){
     const cells=campaigns.map((_,col)=>{
       const list=byCol[col]||[];
       const content=list.length?list.map(s=>adminCard(s)).join(''):'<span class="routeAddLabel">＋ Rota Ekle</span>';
-      return `<div class="campaign-cell ${list.length?'':'empty'}" title="Bu kutuda istediğin kampanyayı açabilirsin" onclick="adminAddAtTime('${t}',${col})" ondragover="allowDrop(event)" ondrop="dropOnCell(event, ${list[0]?`'${list[0].id}'`:`null`})" ondragleave="dragLeave(event)">${content}</div>`;
+      return `<div class="campaign-cell ${list.length?'':'empty'}" onclick="adminAddAtTime('${t}',${col})" ondragover="allowDrop(event)" ondrop="dropOnCell(event, ${list[0]?`'${list[0].id}'`:`null`})" ondragleave="dragLeave(event)">${content}</div>`;
     }).join('');
     return `<div class="calendar-row"><div class="time">${t}</div>${cells}</div>`;
   }).join('');
@@ -834,229 +851,135 @@ function dragEnd(){suppressClick=didDrag;setTimeout(()=>{suppressClick=false;did
 function allowDrop(e){if(!draggingBookingId)return;e.preventDefault();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drop-target')}
 function dragLeave(e){e.currentTarget.classList.remove('drop-target')}
 function dropOnCell(e,targetSlotId){e.preventDefault();e.stopPropagation();didDrag=true;if(!draggingBookingId)return;let b=db.bookings.find(x=>x.id===draggingBookingId);if(!b)return;let target=targetSlotId?db.slots.find(s=>s.id===targetSlotId):null;if(!target){alert('Önce bu saate aynı kampanya için bir rota açılmalı.');dragEnd();return}let oldSlot=db.slots.find(s=>s.id===b.slotId);if(target.campaign!==oldSlot?.campaign){alert('Termin sadece aynı kampanya sütununda başka bir saate taşınabilir.');dragEnd();return}if(booking(target)){alert('Bu saatte bu kampanyanın rotası zaten dolu.');dragEnd();return}const oldDate=oldSlot?.date||b.routeDate,oldTime=oldSlot?.time||b.routeTime;b.slotId=target.id;b.routeDate=target.date;b.routeTime=target.time;b.routeCampaign=target.campaign;b.routeCol=target.col;audit('booking.moved','booking',b.id,b.customerName||'Termin',`Termin taşındı: ${oldDate||''} ${oldTime||''} → ${target.date} ${target.time}`);save();dragEnd();render()}
-function adminAddAtTime(t,col){
-  const options=campaigns;
-  const defaultCampaign=options[col]?.[0]||options[0]?.[0]||'';
-  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="modal"><div class="modal"><h3>Rota Ekle</h3><p style="color:#68758b">Tarih: <b>${fmt(viewDate)}</b><br>Saat: <b>${esc(t)}</b><br><b>Tıkladığın kutu:</b> ${esc(defaultCampaign)}<br><span style="font-size:12px">İstediğin kampanyayı seçebilirsin; seçtiğin kampanya tıkladığın kutuda kalır.</span></p><label>Kampanya</label><select id="rc">${options.map((c,i)=>`<option value="${esc(c[0])}" ${i===col?'selected':''}>${c[0]}</option>`).join('')}</select><div class="actions"><button class="action gray" onclick="closeModal()">İptal</button><button class="action blue" onclick="createRouteAtTime('${t}',${col})">Rotayı Aç</button></div></div></div>`);
-}
-window.openDeletedBookings=function(){
-  if(db.user?.role!=='admin') return;
+function adminAddAtTime(t,col){let d=viewDate;let options=campaigns;document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="modal"><div class="modal"><h3>Rota Ekle</h3><p style="color:#68758b">Tarih: <b>${fmt(viewDate)}</b><br>Saat: <b>${esc(t)}</b><br>Seçtiğin kampanya <b>tıkladığın bu kutuda</b> kalacak.<br><span style="font-size:12px">Aynı kampanyadan aynı saatte birden fazla rota açabilirsin.</span></p><label>Kampanya</label><select id="rc">${options.map(c=>`<option value="${esc(c[0])}">${c[0]}</option>`).join('')}</select><div class="actions"><button class="action gray" onclick="closeModal()">İptal</button><button class="action blue" onclick="createRouteAtTime('${t}',${col})">Rotayı Aç</button></div></div></div>`)}
+function createRouteAtTime(t,col){let d=viewDate,c=(document.getElementById('rc')?.value||'');if(!c)return;const slot={id:crypto.randomUUID(),date:d,time:t,campaign:c,col:Number(col)};db.slots.push(slot);audit('route.created','route',slot.id,`${c} · ${t}`,`Rota oluşturuldu: ${fmt(d)} · ${t} · ${c}`);save();closeModal();render()}
+function adminAdd(){alert('Rota eklemek için takvimde istediğin saatteki beyaz “＋ Rota Ekle” kutusuna tıklayabilirsin.')}
+async function syncHomeAgentBookingStatus(b,status){
+  if(!b || !['approved','rejected'].includes(status)) return;
 
-  let modal=document.getElementById('deletedBookingsModal');
-
-  if(!modal){
-    modal=document.createElement('div');
-    modal.id='deletedBookingsModal';
-    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
-
-    modal.innerHTML=`
-      <div style="background:#fff;width:min(1100px,96vw);max-height:90vh;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid #ddd;">
-          <div>
-            <h2 style="margin:0;color:#14213d;">Silinen Terminler</h2>
-            <div style="margin-top:5px;color:#718096;">Silinen termin kayıtları</div>
-          </div>
-          <button id="closeDeletedBookings" style="border:0;background:#eee;border-radius:10px;padding:10px 14px;cursor:pointer;font-size:18px;">✕</button>
-        </div>
-
-        <div style="padding:15px 20px;border-bottom:1px solid #eee;">
-          <input id="deletedBookingSearch" type="text" placeholder="Müşteri, PLZ, şehir veya çalışan ara..." style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #ccd5e0;border-radius:10px;">
-        </div>
-
-        <div id="deletedBookingResults" style="padding:20px;overflow:auto;"></div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    document.getElementById('closeDeletedBookings').onclick=()=>{
-      modal.remove();
-    };
-
-    document.getElementById('deletedBookingSearch').oninput=(e)=>{
-      filterDeletedBookings(e.target.value);
-    };
-  }
-
-  modal.style.display='flex';
-  filterDeletedBookings('');
-}
-window.__renderDeletedBookings=function(q=''){
-  const box=document.getElementById('deletedBookingResults');
-  if(!box)return;
-
-  const query=String(q||'').trim().toLowerCase();
-
-  const list=(db.deletedBookings||[]).filter(b=>{
-    if(!query)return true;
-
-    return [
-      b.id,b.customerName,b.kundeName,b.vorname,
-      b.employee,b.employeeName,b.plz,b.ort,
-      b.routeDate,b.routeTime,b.deletedByName,b.deletedReason
-    ].some(v=>String(v??'').toLowerCase().includes(query));
-  });
-
-  if(!list.length){
-    box.innerHTML='<div style="padding:40px;text-align:center;color:#718096;">Silinen termin bulunamadı.</div>';
-    return;
-  }
-
-  box.innerHTML=list.map(b=>`
-    <div style="border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin-bottom:12px;background:#f8fafc;">
-      <div style="display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap;">
-        <div style="flex:1;min-width:280px;">
-          <div style="font-size:18px;font-weight:800;color:#14213d;">
-            ${b.customerName || b.kundeName || 'İsimsiz müşteri'}
-          </div>
-          <div style="margin-top:7px;color:#4a5568;line-height:1.7;">
-            <b>Tarih:</b> ${b.routeDate || '-'}
-            &nbsp; | &nbsp;
-            <b>Saat:</b> ${b.routeTime || '-'}
-            <br>
-            <b>Adres:</b> ${b.strasse || '-'}, ${b.plz || ''} ${b.ort || ''}
-            <br>
-            <b>Çalışan:</b> ${b.employeeName || b.employee || '-'}
-          </div>
-        </div>
-
-        <div style="min-width:220px;color:#4a5568;">
-          <div><b>Silinme tarihi:</b></div>
-          <div>${b.deletedAt ? new Date(b.deletedAt).toLocaleString('tr-TR') : '-'}</div>
-          <div style="margin-top:8px;"><b>Silen:</b></div>
-          <div>${b.deletedByName || b.deletedBy || '-'}</div>
-          ${b.deletedReason ? `
-            <div style="margin-top:8px;"><b>Silinme nedeni:</b></div>
-            <div>${b.deletedReason}</div>
-          ` : ''}
-        </div>
-
-        <button class="action blue" data-restore-deleted="${String(b.id).replace(/"/g,'&quot;')}">
-          Geri Al
-        </button>
-      </div>
-    </div>
-  `).join('');
-
-  box.querySelectorAll('[data-restore-deleted]').forEach(btn=>{
-    btn.onclick=()=>{
-      restoreDeletedBooking(btn.getAttribute('data-restore-deleted'));
-    };
-  });
-};
- function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)window.__renderDeletedBookings(q);}
-async function restoreDeletedBooking(id){
-  if(db.user?.role!=='admin')return;
-
-  const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);
-  if(idx<0)return alert('Silinen termin bulunamadı.');
-
-  const b=JSON.parse(JSON.stringify(db.deletedBookings[idx]));
-
-  if(db.bookings.some(x=>x.id===b.id)){
-    return alert('Bu termin zaten takvimde bulunuyor.');
-  }
-
-  if(b.slotId){
-    const target=db.slots.find(s=>s.id===b.slotId);
-    if(target&&booking(target)){
-      return alert('Bu termin için rota şu anda başka bir termin tarafından kullanılıyor. Önce rotayı kontrol et.');
-    }
-  }
+  // Identify the Kalender owner. Normal Agents are ignored.
+  const employee=(db.employees||[]).find(e=>e.u===b.employee);
+  if(!employee || employee.role!=='home_agent') return;
 
   try{
-    const timeParts=String(b.routeTime||'08:00-09:00')
-      .split('-')
-      .map(x=>x.trim());
-
-    const timeStart=timeParts[0]||'08:00';
-    const timeEnd=timeParts[1]||'09:00';
-
-    const campaignName=b.routeCampaign||'TURUNCU';
-
-    let campaignColor=b.campaignColor||b.campaign_color||null;
-
-    if(!campaignColor && Array.isArray(campaigns)){
-      const c=campaigns.find(x=>x[0]===campaignName);
-      if(c)campaignColor=c[1]||null;
-    }
-
-    const appointment={
-      id:b.id,
-      route_id:b.slotId||null,
-      appointment_date:b.routeDate||b.rejectedDate||viewDate,
-      time_start:timeStart,
-      time_end:timeEnd,
-      campaign:campaignName,
-      campaign_color:campaignColor,
-      agent_id:b.authAgentId||null,
-      created_by:b.createdByAuthId||null,
-      kunde_name:b.kundeName||'',
-      vorname:b.vorname||'',
-      alter:b.alter||'',
-      strasse:b.strasse||'',
-      plz:b.plz||'',
-      ort:b.ort||'',
-      festnetz:b.festnetz||'',
-      mobil:b.mobil||'',
-      entscheidungstraeger:b.entscheidungstraeger||'',
-      gesprochen_mit:b.gesprochenMit||'',
-      baujahr:b.baujahr||'',
-      teilnehmer:b.teilnehmer||'',
-      heizart:b.heizart||'',
-      frei_reihenhaus:b.freiReihenhaus||'',
-      verbrauch:b.verbrauch||'',
-      vorlauftemperatur:b.vorlauftemperatur||'',
-      rohrsystem:b.rohrsystem||'',
-      beheizte_wohnflaeche:b.beheizteWohnflaeche||'',
-      notes:b.notes||'',
-      control_note:b.controlNote||'',
-      status:b.status||'pending',
-      created_at:b.createdAt||new Date().toISOString(),
-      updated_at:b.updatedAt||new Date().toISOString()
-    };
-
-    const ins=await dkSupabase
-      .from('appointments')
-      .insert(appointment);
-
-    if(ins.error)throw ins.error;
-
-    const del=await dkSupabase
-      .from('deleted_appointments')
-      .delete()
-      .eq('original_appointment_id',b.id);
-
-    if(del.error)throw del.error;
-
-    delete b.deletedAt;
-    delete b.deletedBy;
-    delete b.deletedByName;
-    delete b.deletedReason;
-
-    db.bookings.push(b);
-    db.deletedBookings.splice(idx,1);
-
-    audit(
-      'booking.restored',
-      'booking',
-      b.id,
-      b.customerName||b.kundeName||'Termin',
-      `Termin geri yüklendi: ${b.routeDate||''} · ${b.routeTime||''} · ${b.routeCampaign||''}`
+    const supabase=window.supabase.createClient(
+      'https://cbznvkijchjptsthumyb.supabase.co',
+      'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'
     );
 
-    save();
+    // Admin's existing Supabase session is sufficient.
+    const {data:{session},error:sessionError}=await supabase.auth.getSession();
+    if(sessionError || !session){
+      console.warn('Home Agent kazanç sync: Admin Supabase session yok.',sessionError?.message||'');
+      return;
+    }
 
-    document.getElementById('deletedBookingsModal')?.remove();
+    const campaign=b.routeCampaign||b.rejectedCampaign||b.campaign||'Home Agent';
 
-    await syncOnlineCalendar();
-    render();
+    const {error}=await supabase.rpc('home_sync_local_appointment_earning',{
+      p_local_booking_id:String(b.id),
+      p_home_agent_username:String(employee.u),
+      p_campaign:String(campaign),
+      p_approved:status==='approved'
+    });
 
-    alert('Termin başarıyla geri yüklendi.');
+    if(error){
+      console.error('Home Agent kazanç sync hatası:',error);
+      alert(
+        'Termin Kalender tarafında kaydedildi.\\n\\n'+
+        'Home Agent kazanç aktarımı yapılamadı:\\n'+
+        (error.message||'Bilinmeyen hata')+
+        '\\n\\nTermin kaydı bozulmadı; sadece finans aktarımı tekrar denenebilir.'
+      );
+    }
   }catch(e){
-    console.error('Termin geri yükleme hatası:',e);
-    alert(`Termin geri yüklenemedi: ${e.message||e}`);
+    console.error('Home Agent kazanç sync:',e);
   }
+}
+
+async function setStatus(id,status){
+  if(db.user.role!=='admin')return;
+  let b=db.bookings.find(x=>x.id===id);
+  if(!b)return;
+
+  let note=(document.getElementById('cnote')?.value||'').trim();
+  if(!note)return alert('Lütfen kontrol birimi notunu yaz.');
+
+  const oldStatus=b.status;
+  if(status==='rejected' && !b.rejectedSlotId){
+    let old=db.slots.find(s=>s.id===b.slotId);
+    b.rejectedSlotId=b.slotId;
+    b.rejectedTime=old?.time||'';
+    b.rejectedCampaign=old?.campaign||'';
+    b.rejectedDate=old?.date||viewDate;
+    b.rejectedAt=new Date().toISOString();
+    b.slotId=null;
+  }
+
+  b.status=status;
+  b.controlNote=note;
+  b.controlAt=new Date().toISOString();
+  b.controlBy=db.user.name;
+
+  audit(
+    'booking.status',
+    'booking',
+    b.id,
+    b.customerName||'Termin',
+    `Durum: ${statusText(oldStatus)} → ${statusText(status)} · Not: ${note}`
+  );
+
+  // 1) Existing Kalender behavior: save immediately.
+  save();
+  closeModal();
+  render();
+
+  // 2) NEW and isolated: only Home Agent approved/rejected bookings
+  //    are synchronized to the separate Home Agent earnings ledger.
+  await syncHomeAgentBookingStatus(b,status);
+}
+function deleteBooking(id){let b=db.bookings.find(x=>x.id===id);if(!b)return;if(db.user.role!=='admin'&&b.employee!==db.user.u)return alert('Bu termini silemezsin.');if(!confirm('Bu termini silmek istediğine emin misin?\n\nTermin “Silinenler” alanına taşınacak ve Admin tarafından geri getirilebilecek.'))return;const deleted=JSON.parse(JSON.stringify({...b,deletedAt:new Date().toISOString(),deletedBy:db.user.u,deletedByName:db.user.name,deletedReason:'Manuel olarak silindi'}));db.deletedBookings.push(deleted);audit('booking.deleted','booking',b.id,b.customerName||'Termin',`Termin silinenler alanına taşındı: ${b.routeDate||b.rejectedDate||''} · ${b.routeTime||b.rejectedTime||''} · ${b.routeCampaign||b.rejectedCampaign||''}`);db.bookings=db.bookings.filter(x=>x.id!==id);save();closeModal();render()}
+function openDeletedBookings(){
+  if(db.user?.role!=='admin')return;
+  const all=Array.isArray(db.deletedBookings)?db.deletedBookings.slice():[];
+  const modalId='deletedBookingsModal';
+  document.getElementById(modalId)?.remove();
+  const renderList=(q='')=>{
+    q=q.trim().toLocaleLowerCase('tr-TR');
+    const filtered=all.filter(b=>{
+      const name=(b.customerName||((b.kundeName||'')+' '+(b.vorname||''))||'').toLocaleLowerCase('tr-TR');
+      const phone=((b.mobil||'')+' '+(b.festnetz||'')).toLocaleLowerCase('tr-TR');
+      const agent=((b.employeeName||'')+' '+(b.employee||'')).toLocaleLowerCase('tr-TR');
+      return !q||name.includes(q)||phone.includes(q)||agent.includes(q);
+    });
+    if(!filtered.length)return '<div style="padding:22px;text-align:center;color:#748096">Keine gelöschten Termine gefunden.</div>';
+    return filtered.map(b=>{
+      const name=b.customerName||(((b.kundeName||'')+' '+(b.vorname||'')).trim())||'İsimsiz müşteri';
+      const d=b.routeDate||b.rejectedDate||b.date||'';
+      const t=b.routeTime||b.rejectedTime||b.time||'';
+      const c=b.routeCampaign||b.rejectedCampaign||b.campaign||'';
+      const status=statusText(b.status||'pending');
+      return `<div class="rejectedItem" style="cursor:default"><div style="min-width:0"><b>${esc(name)}</b><span>${esc(b.employeeName||b.employee||'')} · ${esc(d)} · ${esc(t)} · ${esc(c)} · ${esc(status)}</span><small style="display:block;color:#9aa6b7;margin-top:4px">Silindi: ${esc(b.deletedAt?new Date(b.deletedAt).toLocaleString('tr-TR'):'—')} · ${esc(b.deletedByName||b.deletedBy||'')}</small></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="action blue" onclick="restoreDeletedBooking('${esc(b.id)}')">↩ Geri Yükle</button><button class="action gray" onclick="viewDeletedBooking('${esc(b.id)}')">Detay</button><button class="action dangerOutline" onclick="permanentlyDeleteBooking('${esc(b.id)}')">Kalıcı Sil</button></div></div>`;
+    }).join('');
+  };
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="${modalId}"><div class="modal" style="max-width:900px"><div class="modalTitleRow"><div><div class="modalKicker">GERİ DÖNÜŞÜM KUTUSU</div><h3>Silinen Terminler</h3><div style="color:#748096;font-size:12px;margin-top:4px">Yanlışlıkla silinen terminleri buradan geri yükleyebilirsin.</div></div><span class="statusPill rejected">${all.length} ADET</span></div><div style="margin-top:14px"><input id="deletedBookingSearch" type="search" placeholder="Kunde adı, telefon veya agent ile ara..." style="width:100%;box-sizing:border-box;padding:11px 13px;border:1px solid #d8dee8;border-radius:10px;font-size:14px;outline:none" oninput="filterDeletedBookings(this.value)"></div><div id="deletedBookingResults" class="rejectedPanel" style="margin-top:10px;max-height:60vh;overflow:auto">${renderList()}</div><div class="actions"><button class="action gray" onclick="document.getElementById('${modalId}')?.remove()">Kapat</button></div></div></div>`);
+  window.__deletedBookingsAll=all;window.__renderDeletedBookings=renderList;
+}
+function filterDeletedBookings(q){const box=document.getElementById('deletedBookingResults');if(box&&window.__renderDeletedBookings)box.innerHTML=window.__renderDeletedBookings(q);}
+function restoreDeletedBooking(id){
+  if(db.user?.role!=='admin')return;
+  const idx=(db.deletedBookings||[]).findIndex(x=>x.id===id);if(idx<0)return alert('Silinen termin bulunamadı.');
+  const b=JSON.parse(JSON.stringify(db.deletedBookings[idx]));
+  delete b.deletedAt;delete b.deletedBy;delete b.deletedByName;delete b.deletedReason;
+  if(b.slotId && !db.slots.some(s=>s.id===b.slotId)){
+    const slot={id:b.slotId,date:b.routeDate||b.rejectedDate||viewDate,time:b.routeTime||b.rejectedTime||'08:00-09:00',campaign:b.routeCampaign||b.rejectedCampaign||'TURUNCU',col:Number.isInteger(b.routeCol)?b.routeCol:Math.max(0,campaigns.findIndex(c=>c[0]===(b.routeCampaign||b.rejectedCampaign)))};
+    db.slots.push(slot);
+  }
+  if(db.bookings.some(x=>x.id===b.id))return alert('Bu termin zaten takvimde bulunuyor.');
+  if(b.slotId){const target=db.slots.find(s=>s.id===b.slotId);if(target&&booking(target))return alert('Bu termin için rota şu anda başka bir termin tarafından kullanılıyor. Önce rotayı kontrol et.');}
+  db.bookings.push(b);db.deletedBookings.splice(idx,1);
+  audit('booking.restored','booking',b.id,b.customerName||'Termin',`Termin geri yüklendi: ${b.routeDate||b.rejectedDate||''} · ${b.routeTime||b.rejectedTime||''} · ${b.routeCampaign||b.rejectedCampaign||''}`);
+  save();document.getElementById('deletedBookingsModal')?.remove();render();alert('Termin başarıyla geri yüklendi.');
 }
 function permanentlyDeleteBooking(id){
   if(db.user?.role!=='admin')return;
@@ -1082,245 +1005,193 @@ function filterRejectedBookings(q){let box=document.getElementById('rejectedResu
 function openBookingFromRejected(id){document.getElementById('rejectedModal')?.remove();openBooking(id)}
 function deleteRoute(id){const slot=db.slots.find(s=>s.id===id);let b=booking(slot);if(b)return alert('Bu rotada termin var. Önce termini kontrol/iptal etmelisin.');if(!slot)return;if(!confirm('Bu rotayı tamamen silmek istediğine emin misin?'))return;audit('route.deleted','route',slot.id,`${slot.campaign} · ${slot.time}`,`Rota silindi: ${fmt(slot.date)} · ${slot.time} · ${slot.campaign}`);db.slots=db.slots.filter(s=>s.id!==id);save();render()}
 function manageAnnouncements(){if(db.user.role!=='admin')return;db.announcements=db.announcements||[];let list=db.announcements.slice().reverse();document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="announcementModal"><div class="modal" style="max-width:680px"><div class="modalTitleRow"><div><div class="modalKicker">YÖNETİM</div><h3>Duyuru / İkaz Gönder</h3></div></div><label>BAŞLIK</label><input id="annTitle" placeholder="Örn. Önemli bilgilendirme"><label>MESAJ</label><textarea id="annBody" rows="5" placeholder="Tüm ekip için duyurunuzu yazın..."></textarea><div class="actions"><button class="action gray" onclick="document.getElementById('announcementModal')?.remove()">Kapat</button><button class="action blue" onclick="sendAnnouncement()">Herkese Gönder</button></div><div style="margin-top:16px;border-top:1px solid #e5e9f0;padding-top:12px"><b style="font-size:13px">Son duyurular</b><div style="font-size:11px;color:#8792a3;margin-top:4px">Duyurular 7 gün sonra otomatik olarak silinir.</div>${list.slice(0,8).map(a=>`<div style="padding:9px 0;border-bottom:1px solid #eef1f5"><b>${esc(a.title)}</b><div style="font-size:12px;color:#748096">${esc(a.body)} · ${new Date(a.createdAt).toLocaleString('tr-TR')}</div></div>`).join('')||'<div style="color:#748096;font-size:12px;margin-top:8px">Henüz duyuru yok.</div>'}</div></div></div>`)}
-async function sendAnnouncement(){
-  if(db.user?.role!=='admin')return;
-  const title=(document.getElementById('annTitle')?.value||'').trim(),body=(document.getElementById('annBody')?.value||'').trim();
-  if(!title||!body)return alert('Başlık ve mesajı doldur.');
-  try{
-    const now=new Date().toISOString();
-    const {data:row,error}=await dkSupabase.from('announcements').insert({
-      title,
-      body,
-      sender_id:db.user.authId,
-      created_at:now
-    }).select('*').single();
-    if(error)throw error;
-    audit('announcement.created','announcement',row?.id||crypto.randomUUID(),title,'Duyuru oluşturuldu ve ekibe gönderildi.');
-    await syncOnlineCommunication();
-    document.getElementById('announcementModal')?.remove();
-    alert('Duyuru tüm aktif kullanıcılara gönderildi.');
-    render();
-  }catch(e){alert(`Duyuru gönderilemedi: ${e.message||e}`);}
-}
-let dkAnnouncementCheckBusy=false;
-async function fetchPendingAnnouncement(){
-  if(!db.user||!dkSupabase||!db.user.authId)return null;
-  if(dkAnnouncementCheckBusy)return null;
-  dkAnnouncementCheckBusy=true;
-  try{
-    const {data:anns,error:aErr}=await dkSupabase
-      .from('announcements')
-      .select('id,title,body,sender_id,requires_ack,created_at')
-      .eq('requires_ack',true)
-      .order('created_at',{ascending:false})
-      .limit(50);
-    if(aErr)throw aErr;
-    const now=Date.now();
-    const active=(anns||[]).filter(a=>{
-      const t=Date.parse(a.created_at||'');
-      return !Number.isFinite(t)||now-t<=7*24*60*60*1000;
-    });
-    if(!active.length)return null;
-
-    const {data:acks,error:qErr}=await dkSupabase
-      .from('announcement_acknowledgements')
-      .select('announcement_id, user_id, acknowledged_at')
-      .eq('user_id',db.user.authId);
-    if(qErr)throw qErr;
-    const acked=new Set((acks||[]).map(x=>String(x.announcement_id)));
-    const unread=active.find(a=>!acked.has(String(a.id)));
-    if(!unread)return null;
-    db.announcements=(anns||[]).map(a=>dkAnnouncementToLocal(a,acks||[]));
-    save();
-    return unread;
-  }catch(e){
-    console.error('Danke Kalender duyuru kontrolü:',e);
-    return null;
-  }finally{
-    dkAnnouncementCheckBusy=false;
-  }
-}
-
-async function showUnreadAnnouncements(force=false){
-  if(!db.user)return;
-  if(document.getElementById('announcementNotice'))return;
-  const unread=await fetchPendingAnnouncement();
-  if(!unread){
-    if(force) stopPersistentAlertSound();
-    return;
-  }
-  const a=unread;
-  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="announcementNotice"><div class="modal" style="max-width:560px"><div class="modalTitleRow"><div><div class="modalKicker">⚠️ YENİ DUYURU</div><h3>${esc(a.title||'Duyuru')}</h3></div><span class="statusPill pending">İKAZ</span></div><div style="font-size:15px;line-height:1.6;color:#24344d;white-space:pre-wrap;margin-top:10px">${esc(a.body||'')}</div><div style="font-size:11px;color:#7b8798;margin-top:12px">${new Date(a.created_at).toLocaleString('tr-TR')}</div><div class="actions"><button class="action blue" onclick="ackAnnouncement('${esc(a.id)}')">✓ Okudum / Onaylıyorum</button></div></div></div>`);
-  startPersistentAlertSound('announcement','ann:'+a.id);
-}
-
-async function ackAnnouncement(id){
-  const a=(db.announcements||[]).find(x=>x.id===id);if(!a||!db.user?.authId)return;
-  try{
-    const now=new Date().toISOString();
-    let ackRes=await dkSupabase.from('announcement_acknowledgements').upsert({
-      announcement_id:id,
-      user_id:db.user.authId,
-      acknowledged_at:now
-    },{onConflict:'announcement_id,user_id'});
-    if(ackRes.error){
-      ackRes=await dkSupabase.from('announcement_acknowledgements').insert({
-        announcement_id:id,
-        user_id:db.user.authId,
-        acknowledged_at:now
-      });
-    }
-    if(ackRes.error)throw ackRes.error;
-    a.reads=a.reads||[];if(!a.reads.includes(db.user.u))a.reads.push(db.user.u);
-    stopPersistentAlertSound('ann:'+id);document.getElementById('announcementNotice')?.remove();
-    await syncOnlineCommunication();
-    await showUnreadAnnouncements();
-  }catch(e){alert(`Duyuru onayı kaydedilemedi: ${e.message||e}`);}
-}
-async function syncOnlineProfiles(){
-  if(!db.user?.authId)return;
-  try{
-    const {data,error}=await dkSupabase.from('profiles').select('id,full_name,username,role,is_active,email').eq('is_active',true).order('full_name');
-    if(error)throw error;
-    if(!Array.isArray(db.employees))db.employees=[];
-    for(const p of (data||[])){
-      const role=p.role==='admin'?'admin':'employee';
-      const existing=db.employees.find(e=>e.u===p.username)||{};
-      const merged={...existing,u:p.username,name:p.full_name,role,authId:p.id,email:p.email||existing.email||''};
-      const idx=db.employees.findIndex(e=>e.u===p.username);
-      if(idx>=0)db.employees[idx]={...db.employees[idx],...merged};
-      else db.employees.push(merged);
-    }
-    save();
-    return true;
-  }catch(e){console.warn('Online profiller alınamadı:',e);return false;}
-}
-
-async function manageUsers(){
+function sendAnnouncement(){let title=(document.getElementById('annTitle')?.value||'').trim(),body=(document.getElementById('annBody')?.value||'').trim();if(!title||!body)return alert('Başlık ve mesajı doldur.');db.announcements=db.announcements||[];const ann={id:crypto.randomUUID(),title,body,createdAt:new Date().toISOString(),by:db.user.u,reads:[]};db.announcements.push(ann);audit('announcement.created','announcement',ann.id,title,'Duyuru oluşturuldu ve ekibe gönderildi.');save();document.getElementById('announcementModal')?.remove();alert('Duyuru oluşturuldu. Online ortak veritabanına bağlandığında tüm cihazlara anında iletilecek.');render()}
+function showUnreadAnnouncements(){if(!db.user||db.user.role==='admin')return;db.announcements=db.announcements||[];let unread=db.announcements.filter(a=>!(a.reads||[]).includes(db.user.u));if(!unread.length){return;}let a=unread[unread.length-1];document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="announcementNotice"><div class="modal" style="max-width:560px"><div class="modalTitleRow"><div><div class="modalKicker">⚠️ YENİ DUYURU</div><h3>${esc(a.title)}</h3></div><span class="statusPill pending">İKAZ</span></div><div style="font-size:15px;line-height:1.6;color:#24344d;white-space:pre-wrap;margin-top:10px">${esc(a.body)}</div><div style="font-size:11px;color:#7b8798;margin-top:12px">${new Date(a.createdAt).toLocaleString('tr-TR')}</div><div class="actions"><button class="action blue" onclick="ackAnnouncement('${a.id}')">✓ Okudum / Onaylıyorum</button></div></div></div>`);startPersistentAlertSound('announcement','ann:'+a.id)}
+function ackAnnouncement(id){let a=(db.announcements||[]).find(x=>x.id===id);if(!a)return; a.reads=a.reads||[];if(!a.reads.includes(db.user.u))a.reads.push(db.user.u);save();stopPersistentAlertSound('ann:'+id);document.getElementById('announcementNotice')?.remove();let remaining=(db.announcements||[]).filter(x=>!(x.reads||[]).includes(db.user.u));if(remaining.length)showUnreadAnnouncements()}
+function manageUsers(){
  if(db.user.role!=='admin')return;
- await syncOnlineProfiles();
  let admins=db.employees.filter(e=>e.role==='admin');
- let employees=db.employees.filter(e=>e.role==='employee' || e.role==='agent');
+ let employees=db.employees.filter(e=>e.role==='employee');
+ let homeAgents=db.employees.filter(e=>e.role==='home_agent');
  let adminRows=admins.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #edf1f6"><div><b>${esc(e.name)}</b><div style="font-size:12px;color:#7a8799">${esc(e.u)} · Admin</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="action gray" onclick="editUser('${esc(e.u)}')">Düzenle</button><button class="action gray" onclick="openPayrollAdmin('${esc(e.u)}')">Maaş / Not</button><button class="action gray" onclick="resetUserPassword('${esc(e.u)}')">Şifre</button>${e.u!==db.user.u?`<button class="action dangerOutline" onclick="deleteUser('${esc(e.u)}')">Sil</button>`:''}</div></div>`).join('')||'<div style="padding:12px 0;color:#748096">Henüz ek admin hesabı yok.</div>';
  let rows=employees.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #edf1f6"><div><b>${esc(e.name)}</b><div style="font-size:12px;color:#7a8799">${esc(e.u)} · Agent</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="action gray" onclick="editUser('${esc(e.u)}')">Düzenle</button><button class="action gray" onclick="openPayrollAdmin('${esc(e.u)}')">Maaş / Not</button><button class="action gray" onclick="resetUserPassword('${esc(e.u)}')">Şifre</button><button class="action dangerOutline" onclick="deleteUser('${esc(e.u)}')">Sil</button></div></div>`).join('')||'<div style="padding:12px 0;color:#748096">Henüz agent hesabı yok.</div>';
+ let homeRows=homeAgents.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #edf1f6"><div><b>${esc(e.name)}</b><div style="font-size:12px;color:#7a8799">${esc(e.u)} · 🏠 Home Agent</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="action gray" onclick="editUser('${esc(e.u)}')">Düzenle</button><button class="action gray" onclick="openHomeAgentEarningsForAdmin('${esc(e.u)}')">Kazanç / Ödeme</button><button class="action gray" onclick="resetHomeAgentPassword('${esc(e.u)}')">Şifre</button><button class="action dangerOutline" onclick="deleteUser('${esc(e.u)}')">Sil</button></div></div>`).join('')||'<div style="padding:12px 0;color:#748096">Henüz Home Agent hesabı yok.</div>';
  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="usersModal"><div class="modal" style="max-width:760px"><div class="modalTitleRow"><div><div class="modalKicker">KULLANICI YÖNETİMİ</div><h3>Personel ve Admin Hesapları</h3><div style="color:#748096;font-size:12px">Admin olarak yeni Agent veya yeni Admin hesabı oluşturabilir, kullanıcı adını, adı ve şifreyi daha sonra değiştirebilirsin.</div></div></div>
- <div style="margin-top:14px;padding:14px;background:#f6f8fb;border-radius:12px"><h4 style="margin:0 0 10px">Yeni Hesap Oluştur</h4><div style="font-size:12px;color:#748096;margin-bottom:10px">Hesap online olarak Supabase'e kaydedilir. Giriş için ayrıca e-posta girmen gerekmez.</div><label>HESAP TÜRÜ</label><select id="nu_role"><option value="agent">Agent</option><option value="admin">Admin</option></select><label>AD SOYAD</label><input id="nu_name" placeholder="Örn. Max Mustermann"><label>KULLANICI ADI</label><input id="nu_user" placeholder="Örn. max"><label>ŞİFRE</label><input id="nu_pass" type="password" placeholder="En az 8 karakter"><div class="actions"><button class="action blue" onclick="createUser()">Hesap Oluştur</button></div></div>
+ <div style="margin-top:14px;padding:14px;background:#f6f8fb;border-radius:12px"><h4 style="margin:0 0 10px">Yeni Hesap Oluştur</h4><label>HESAP TÜRÜ</label><select id="nu_role" onchange="toggleHomeAgentCreateFields()"><option value="employee">Agent</option><option value="home_agent">🏠 Home Agent</option><option value="admin">Admin</option></select><label>AD SOYAD</label><input id="nu_name" placeholder="Örn. Max Mustermann"><label>E-MAIL <span style="color:#c98d12">(Home Agent için zorunlu)</span></label><input id="nu_email" type="email" placeholder="name@email.de"><label>KULLANICI ADI</label><input id="nu_user" placeholder="Örn. max01"><label>ŞİFRE</label><input id="nu_pass" type="password" placeholder="En az 8 karakter"><div id="homeAgentCreateFields" style="display:none;margin-top:8px;padding:10px;background:#fff7df;border-radius:10px"><label>KONTOINHABER</label><input id="nu_holder" placeholder="Hesap sahibi"><label>IBAN</label><input id="nu_iban" placeholder="DE..."><label>OK BAŞINA ÖDEME (€)</label><input id="nu_rate" type="number" min="0" step="0.01" value="5.00"><div style="font-size:11px;color:#7a6841;margin-top:5px">Home Agent normal Kalender terminlerini kullanır. Maaş bölümü yerine ayrı kazanç sistemi çalışır: onaylanan Termin × belirlediğin ücret.</div></div><div class="actions"><button class="action blue" onclick="createUser()">Hesap Oluştur</button></div></div>
  <div style="margin-top:16px"><h4 style="margin:0 0 6px">Admin Hesapları</h4>${adminRows}</div>
  <div style="margin-top:16px"><h4 style="margin:0 0 6px">Agent Hesapları</h4>${rows}</div>
+ <div style="margin-top:16px"><h4 style="margin:0 0 6px">🏠 Home Agent Hesapları</h4>${homeRows}</div>
  <div class="actions"><button class="action gray" onclick="document.getElementById('usersModal')?.remove()">Kapat</button></div></div></div>`)
 }
+function toggleHomeAgentCreateFields(){const role=document.getElementById('nu_role')?.value||'employee';const box=document.getElementById('homeAgentCreateFields');if(box)box.style.display=role==='home_agent'?'block':'none'}
 async function createUser(){
-  if(db.user?.role!=='admin')return alert('Bu işlem sadece Admin tarafından yapılabilir.');
-  const role=document.getElementById('nu_role')?.value||'agent';
+  const role=document.getElementById('nu_role')?.value||'employee';
   const name=(document.getElementById('nu_name')?.value||'').trim();
   const u=(document.getElementById('nu_user')?.value||'').trim().toLowerCase();
   const p=(document.getElementById('nu_pass')?.value||'').trim();
+  const email=(document.getElementById('nu_email')?.value||'').trim().toLowerCase();
 
   if(!name||!u||!p)return alert('Ad soyad, kullanıcı adı ve şifre zorunlu.');
   if(p.length<8)return alert('Şifre en az 8 karakter olmalı.');
   if(!/^[a-z0-9._-]+$/.test(u))return alert('Kullanıcı adında sadece a-z, 0-9, nokta, alt çizgi ve tire kullanılabilir.');
 
-  try{
-    let session=dkAuthSession;
+  if(role==='home_agent'){
+    const holder=(document.getElementById('nu_holder')?.value||name).trim();
+    const iban=(document.getElementById('nu_iban')?.value||'').trim();
+    const rate=Number(document.getElementById('nu_rate')?.value||0);
 
-    if(!session?.user || !session.access_token){
-      const current=await dkSupabase.auth.getSession();
-      if(current.error)throw new Error('Admin oturumu doğrulanamadı: '+current.error.message);
-      session=current.data.session||null;
-      dkAuthSession=session;
-    }
+    if(!email||!email.includes('@'))return alert('Home Agent için geçerli bir E-Mail zorunlu.');
+    if(!holder||!iban)return alert('Home Agent için Kontoinhaber ve IBAN zorunlu.');
+    if(!Number.isFinite(rate)||rate<0)return alert('OK başına ödeme tutarı geçersiz.');
 
-    if(!session?.user || !session.access_token){
-      const refreshed=await dkSupabase.auth.refreshSession();
-      if(refreshed.error)throw new Error('Admin oturumu yenilenemedi: '+refreshed.error.message);
-      session=refreshed.data.session||null;
-      dkAuthSession=session;
-    }
+    try{
+      const supabase=window.supabase.createClient(
+        'https://cbznvkijchjptsthumyb.supabase.co',
+        'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'
+      );
+      const {data:{session},error:sErr}=await supabase.auth.getSession();
+      if(sErr||!session)return alert('Admin oturumu geçersiz.');
 
-    if(!session?.user || !session.access_token){
-      throw new Error('Aktif Supabase oturumu bulunamadı. Lütfen çıkış yapıp tekrar giriş yap.');
-    }
+      // First check the real Supabase profile. This makes the creation flow
+      // idempotent: a previous partial creation can be completed instead of
+      // producing the misleading "Edge Function non-2xx" error.
+      const {data:existingRemote,error:existingRemoteError}=await supabase
+        .from('profiles')
+        .select('id,full_name,username,role,email,is_active')
+        .eq('username',u)
+        .maybeSingle();
 
-    const result=await dkSupabase.functions.invoke('create-user',{
-      headers:{Authorization:`Bearer ${session.access_token}`},
-      body:{password:p,full_name:name,username:u,role}
-    });
+      if(existingRemoteError){
+        console.error(existingRemoteError);
+        return alert('Kullanıcı adı kontrol edilemedi: '+existingRemoteError.message);
+      }
 
-    const {data,error}=result;
+      let profileId=null;
 
-    if(error){
-      let detail='';
-      try{
-        if(error.context instanceof Response){
-          const raw=await error.context.text();
-          try{
-            const parsed=JSON.parse(raw);
-            detail=parsed?.error||parsed?.message||raw;
-          }catch(_){ detail=raw; }
+      if(existingRemote){
+        if(existingRemote.role!=='home_agent'){
+          return alert('Bu kullanıcı adı zaten normal bir '+(existingRemote.role==='admin'?'Admin':'Agent')+' hesabına ait.');
         }
-      }catch(_){ }
-      throw new Error(detail||error.message||'Edge Function çağrısı başarısız.');
+        if(existingRemote.is_active!==true)return alert('Bu Home Agent hesabı pasif durumda.');
+
+        profileId=existingRemote.id;
+
+        const {error:profileUpdateError}=await supabase.from('profiles').update({
+          full_name:name,
+          email:email,
+          role:'home_agent',
+          is_active:true
+        }).eq('id',profileId);
+
+        if(profileUpdateError){
+          console.error(profileUpdateError);
+          return alert('Mevcut Home Agent profili güncellenemedi: '+profileUpdateError.message);
+        }
+      }else{
+        /*
+         * New Home Agent:
+         * create the normal Kalender Auth/Profile account first, then attach
+         * the separate Home Agent payment profile.
+         */
+        const {data,error}=await supabase.functions.invoke('create-user',{
+          body:{full_name:name,username:u,password:p,role:'agent'}
+        });
+
+        if(error){
+          console.error(error);
+          return alert('Home Agent hesabı oluşturulamadı: '+(error.message||'Sunucu hatası'));
+        }
+        if(!data?.success||!data?.user?.id){
+          return alert(data?.error||'Home Agent hesabı oluşturulamadı.');
+        }
+
+        profileId=data.user.id;
+
+        const {error:profileError}=await supabase.from('profiles').update({
+          role:'home_agent',
+          email:email,
+          is_active:true
+        }).eq('id',profileId);
+
+        if(profileError){
+          console.error(profileError);
+          return alert('Home Agent rolü kaydedilemedi: '+profileError.message);
+        }
+      }
+
+      // Create/update the separate payment profile via protected RPC.
+      const {data:homeData,error:homeError}=await supabase.rpc('home_register_agent_payment',{
+        p_profile_id:profileId,
+        p_account_holder:holder,
+        p_iban:iban,
+        p_appointment_rate_eur:rate
+      });
+
+      if(homeError||!homeData){
+        console.error(homeError);
+        return alert(
+          'Kalender hesabı mevcut fakat Home Agent ödeme profili tamamlanamadı: '+
+          (homeError?.message||'Bilinmeyen hata.')
+        );
+      }
+
+      // Keep the current local Kalender personel list in sync for this browser.
+      const localExisting=db.employees.find(e=>e.u===u);
+      const created=localExisting||{
+        u,p,name,role:'home_agent',email,homeAgent:true,appointmentRate:rate
+      };
+      created.name=name;created.role='home_agent';created.email=email;
+      created.homeAgent=true;created.appointmentRate=rate;
+      if(!localExisting)db.employees.push(created);
+
+      audit(existingRemote?'user.home_agent_completed':'user.created','user',u,name,
+        `Home Agent hesabı ${existingRemote?'tamamlandı':'oluşturuldu'}. OK başına ${rate.toFixed(2)} €`);
+      save();
+
+      document.getElementById('usersModal')?.remove();
+      manageUsers();
+
+      alert(
+        `🏠 Home Agent hesabı hazır.\n\n`+
+        `Kullanıcı adı: ${u}\n`+
+        `E-Mail: ${email}\n`+
+        `OK başına: ${rate.toFixed(2)} €\n\n`+
+        `Danke Kalender personel sistemi + Home Agent kazanç sistemi birlikte aktif.`
+      );
+
+    }catch(e){
+      console.error(e);
+      alert('Home Agent hesabı oluşturulamadı: '+(e?.message||e));
     }
-
-    if(data?.error)throw new Error(data.error);
-    if(data?.ok===false)throw new Error(data.error||'Kullanıcı oluşturulamadı.');
-    if(data?.success!==true && data?.ok!==true){
-      throw new Error('Beklenmeyen Edge Function yanıtı.');
-    }
-
-    await syncOnlineProfiles();
-    const created=db.employees.find(e=>e.u===u)||{u,name,role:role==='admin'?'admin':'employee'};
-    audit('user.created','user',u,name,`${role==='admin'?'Admin':'Agent'} hesabı online olarak oluşturuldu.`);
-    save();
-    document.getElementById('usersModal')?.remove();
-    await manageUsers();
-    alert(role==='admin'?'Admin hesabı oluşturuldu.':'Agent hesabı oluşturuldu.');
-  }catch(e){
-    console.error('createUser failed',e);
-    alert(`Hesap oluşturulamadı: ${e?.message||e}`);
-  }
-}
-function editUser(oldU){let e=db.employees.find(x=>x.u===oldU);if(!e)return;let name=prompt(`${e.role==='admin'?'Admin':'Agent'} adı soyadı:`,e.name);if(name===null)return;name=name.trim();if(!name)return alert('Ad soyad boş olamaz.');let u=prompt('Kullanıcı adı:',e.u);if(u===null)return;u=u.trim().toLowerCase();if(!u)return alert('Kullanıcı adı boş olamaz.');if(!/^[a-z0-9._-]+$/.test(u))return alert('Kullanıcı adında sadece a-z, 0-9, nokta, alt çizgi ve tire kullanılabilir.');if(db.employees.some(x=>x.u===u&&x!==e))return alert('Bu kullanıcı adı zaten kullanılıyor.');const oldName=e.name;e.name=name;e.u=u;db.bookings.forEach(b=>{if(b.employee===oldU)b.employee=u;});if(db.user.u===oldU)db.user=e;audit('user.updated','user',u,name,`Hesap güncellendi: ${oldName} / ${oldU} → ${name} / ${u}`);save();document.getElementById('usersModal')?.remove();manageUsers();alert('Hesap bilgileri güncellendi.');}
-function resetUserPassword(u){let e=db.employees.find(x=>x.u===u);if(!e)return;let p=prompt(`${e.name} için yeni şifre:`,'');if(p===null)return;p=p.trim();if(p.length<4)return alert('Şifre en az 4 karakter olmalı.');e.p=p;if(db.user.u===u)db.user.p=p;audit('user.password','user',u,e.name,'Şifre güncellendi. Şifrenin kendisi işlem geçmişine kaydedilmedi.');save();alert('Şifre güncellendi.');}
-async function deleteUser(u){
-  const e=db.employees.find(x=>x.u===u);
-  if(!e)return;
-
-  if(e.u===db.user.u){
-    return alert('Kendi admin hesabını silemezsin.');
-  }
-
-  if(!confirm(`${e.name} hesabını silmek istediğine emin misin? Mevcut terminler silinmez.`)){
     return;
   }
 
-  try{
-    const {error}=await dkSupabase.rpc('deactivate_user',{
-  target_username:u
-});
-    if(error)throw error;
+  if(db.employees.some(e=>e.u===u))return alert('Bu kullanıcı adı zaten kullanılıyor.');
 
-    audit(
-      'user.deleted',
-      'user',
-      u,
-      e.name,
-      `${e.role==='admin'?'Admin':'Agent'} hesabı pasif hale getirildi.`
-    );
-
-    db.employees=db.employees.filter(x=>x.u!==u);
-    save();
-
-    document.getElementById('usersModal')?.remove();
-
-    await manageUsers();
-
-    alert(`${e.name} hesabı başarıyla silindi.`);
-  }catch(err){
-    console.error('Kullanıcı silme hatası:',err);
-    alert('Kullanıcı silinemedi: '+(err?.message||err));
-  }
+  const created={u,p,name,role,email};
+  db.employees.push(created);
+  audit('user.created','user',u,name,`${role==='admin'?'Admin':'Agent'} hesabı oluşturuldu.`);
+  save();
+  document.getElementById('usersModal')?.remove();
+  manageUsers();
+  alert(role==='admin'?'Admin hesabı oluşturuldu.':'Agent hesabı oluşturuldu.');
 }
+function editUser(oldU){let e=db.employees.find(x=>x.u===oldU);if(!e)return;let name=prompt(`${e.role==='admin'?'Admin':e.role==='home_agent'?'Home Agent':'Agent'} adı soyadı:`,e.name);if(name===null)return;name=name.trim();if(!name)return alert('Ad soyad boş olamaz.');let u=prompt('Kullanıcı adı:',e.u);if(u===null)return;u=u.trim().toLowerCase();if(!u)return alert('Kullanıcı adı boş olamaz.');if(!/^[a-z0-9._-]+$/.test(u))return alert('Kullanıcı adında sadece a-z, 0-9, nokta, alt çizgi ve tire kullanılabilir.');if(db.employees.some(x=>x.u===u&&x!==e))return alert('Bu kullanıcı adı zaten kullanılıyor.');const oldName=e.name;e.name=name;e.u=u;db.bookings.forEach(b=>{if(b.employee===oldU)b.employee=u;});if(db.user.u===oldU)db.user=e;audit('user.updated','user',u,name,`Hesap güncellendi: ${oldName} / ${oldU} → ${name} / ${u}`);save();document.getElementById('usersModal')?.remove();manageUsers();alert('Hesap bilgileri güncellendi.');}
+async function resetHomeAgentPassword(u){
+  const e=db.employees.find(x=>x.u===u);if(!e)return;
+  let p=prompt(`${e.name} için yeni Home Agent şifresi:`,'');if(p===null)return;p=p.trim();
+  if(p.length<8)return alert('Şifre en az 8 karakter olmalı.');
+  try{
+    const supabase=window.supabase.createClient('https://cbznvkijchjptsthumyb.supabase.co','sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG');
+    const {data:{session},error:sErr}=await supabase.auth.getSession();
+    if(sErr||!session)return alert('Admin oturumu geçersiz.');
+    const {data,error}=await supabase.functions.invoke('danke-home-manual-agent',{body:{action:'change_password',username:u,password:p}});
+    if(error||!data?.ok)return alert(data?.message||error?.message||'Şifre değiştirilemedi.');
+    e.p=p;save();alert('Home Agent şifresi güncellendi.');
+  }catch(err){alert('Şifre güncellenemedi: '+(err?.message||err))}
+}
+function resetUserPassword(u){let e=db.employees.find(x=>x.u===u);if(!e)return;let p=prompt(`${e.name} için yeni şifre:`,'');if(p===null)return;p=p.trim();if(p.length<4)return alert('Şifre en az 4 karakter olmalı.');e.p=p;if(db.user.u===u)db.user.p=p;audit('user.password','user',u,e.name,'Şifre güncellendi. Şifrenin kendisi işlem geçmişine kaydedilmedi.');save();alert('Şifre güncellendi.');}
+function deleteUser(u){let e=db.employees.find(x=>x.u===u);if(!e)return;if(e.u===db.user.u)return alert('Kendi admin hesabını silemezsin.');if(!confirm(`${e.name} hesabını silmek istediğine emin misin? Mevcut terminler silinmez.`))return;audit('user.deleted','user',u,e.name,`${e.role==='admin'?'Admin':e.role==='home_agent'?'Home Agent':'Agent'} hesabı silindi.`);db.employees=db.employees.filter(x=>x.u!==u);save();document.getElementById('usersModal')?.remove();manageUsers();}
 function changeOwnPassword(){if(!db.user||db.user.role!=='admin')return alert('Agent kullanıcıları şifrelerini değiştiremez.');let old=prompt('Mevcut şifreniz:');if(old===null)return;if(old!==db.user.p)return alert('Mevcut şifre yanlış.');let np=prompt('Yeni şifre (en az 4 karakter):');if(np===null)return;np=np.trim();if(np.length<4)return alert('Şifre en az 4 karakter olmalı.');let e=db.employees.find(x=>x.u===db.user.u);if(e){e.p=np;db.user.p=np;save();alert('Şifreniz güncellendi.');}}
 
 function timeToMin(t){if(!/^\d{2}:\d{2}$/.test(String(t||'')))return null;const [h,m]=String(t).split(':').map(Number);return h*60+m}
@@ -1376,16 +1247,14 @@ function manageWorkSchedule(){
     return `<div class="workScheduleRow"><div class="dayCell"><div class="scheduleDay">${label}</div><div class="activeCell"><input id="ws_enabled_${k}" type="checkbox" ${sc.enabled?'checked':''}><label for="ws_enabled_${k}">Çalışma günü</label></div></div><div><input id="ws_start_${k}" type="time" value="${esc(sc.start||'08:00')}"></div><div><input id="ws_end_${k}" type="time" value="${esc(sc.end||'18:00')}"></div><div class="breakCell"><input id="ws_breaks_${k}" type="text" value="${esc(breakText)}" placeholder="Örn. 10:00-10:15 Mola 1, 12:00-13:00 Öğle Molası"><div class="breakHint">Molaları virgülle ayırabilirsin. Bildirim mola başlangıcında çıkar.</div></div></div>`}).join('');
   const modalId='workScheduleModal';document.getElementById(modalId)?.remove();
   document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="${modalId}"><div class="modal" style="max-width:960px"><div class="modalTitleRow"><div><div class="modalKicker">İK / MESAİ</div><h3>Mesai Çizelgesi</h3><div style="color:#748096;font-size:12px">Mesai saatlerini ve mola başlangıçlarını Admin olarak düzenleyebilirsin.</div></div><span class="statusPill approved">TÜM PERSONEL</span></div><div class="scheduleCard"><div class="scheduleMeta"><b>Örnek:</b> 10:00-10:15 Mola 1, 12:00-13:00 Öğle Molası, 15:00-15:15 Mola 2</div></div><div class="workScheduleGrid"><div class="head">Gün</div><div class="head">Mesai Başlangıç</div><div class="head">Mesai Bitiş</div><div class="head">Molalar</div>${rows}</div><div class="actions"><button class="action gray" onclick="testBreakNotification()">Mola Bildirimi Test Et</button><button class="action gray" onclick="document.getElementById('${modalId}')?.remove()">Kapat</button><button class="action blue" onclick="saveWorkSchedule()">Mesai Çizelgesini Kaydet</button></div></div></div>`);
-}async function saveWorkSchedule(){
+}
+function saveWorkSchedule(){
   if(db.user.role!=='admin')return;
   WEEK_DAYS.forEach(([k])=>{const start=document.getElementById(`ws_start_${k}`)?.value||'08:00',end=document.getElementById(`ws_end_${k}`)?.value||'18:00',breaks=normalizeScheduleBreaks(document.getElementById(`ws_breaks_${k}`)?.value||''),enabled=!!document.getElementById(`ws_enabled_${k}`)?.checked;
     if(timeToMin(end)<=timeToMin(start)){enabled=false;}
     db.workSchedule[k]={enabled,start,end,breaks};
   });
-  audit('schedule.updated','schedule','workSchedule','Mesai Çizelgesi','Haftalık mesai ve mola ayarları güncellendi.');
- const {error}=await dkSupabase.rpc('save_work_schedule',{p_schedule:db.workSchedule});
-if(error)throw error;
-save();document.getElementById('workScheduleModal')?.remove();alert('Mesai çizelgesi kaydedildi.');
+  audit('schedule.updated','schedule','workSchedule','Mesai Çizelgesi','Haftalık mesai ve mola ayarları güncellendi.');save();document.getElementById('workScheduleModal')?.remove();alert('Mesai çizelgesi kaydedildi.');
 }
 function report(){
   const today=new Date().toISOString().slice(0,10);
@@ -1546,6 +1415,217 @@ function salarySelfSection(){
   const r=payrollCalc(db.user.u,currentMonthValue())||{mb:monthBounds(currentMonthValue()),monthly:0,earned:0,advanceTotal:0,remaining:0,absenceDays:0,absenceDeduction:0,otherDeduction:0,bonusTotal:0};
   return `<section class="hrSection"><div class="hrHead"><div><h3>💶 Maaşım</h3><div class="hrSub">${r.mb?.label||''} · Yalnızca sana ait bilgiler</div></div><button class="action gray" onclick="openMyPayroll()">Detayları Gör</button></div><div class="hrStats"><div class="hrStat"><label>AYLIK MAAŞ</label><b>${money(r.monthly)}</b></div><div class="hrStat green"><label>ANLIK HAKEDİŞ</label><b>${money(r.earned)}</b></div><div class="hrStat"><label>AVANS</label><b>${money(r.advanceTotal)}</b></div><div class="hrStat red"><label>KESİNTİ</label><b>${money((r.absenceDeduction||0)+(r.otherDeduction||0))}</b></div><div class="hrStat"><label>MAZERETSİZ GÜN</label><b>${Number(r.absenceDays||0)}</b></div><div class="hrStat green"><label>ÖDENECEK KALAN</label><b>${money(r.remaining)}</b></div></div></section>`;
 }
+function homeEuro(v){
+  return Number(v||0).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+}
+function homePayoutLabel(s){
+  return ({requested:'Warten auf Zahlung',processing:'In Bearbeitung',paid:'Ausgezahlt',rejected:'Abgelehnt',cancelled:'Storniert'})[s]||s;
+}
+function homeEuro(v){
+  return Number(v||0).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+}
+function homePayoutLabel(s){
+  return ({requested:'Warten auf Zahlung',processing:'In Bearbeitung',paid:'Ausgezahlt',rejected:'Abgelehnt',cancelled:'Storniert'})[s]||s;
+}
+
+async function syncHomeAgentLocalEarnings(supabase, profileUserId){
+  // The current Danke Kalender stores the calendar/appointment workflow locally
+  // as dk_v2. Approved Home Agent appointments therefore need one explicit
+  // server-side ledger sync. Normal Agents are untouched.
+  const localBookings=Array.isArray(db.bookings)?db.bookings:[];
+  const localUser=db.user;
+  if(!localUser || localUser.role!=='home_agent')return;
+
+  const mine=localBookings.filter(b=>
+    b.employee===localUser.u &&
+    (b.status==='approved' || b.status==='rejected')
+  );
+
+  for(const b of mine){
+    const approved=b.status==='approved';
+    const campaign=b.routeCampaign||b.rejectedCampaign||b.campaign||'Home Agent';
+    const {error}=await supabase.rpc('home_sync_local_appointment_earning',{
+      p_local_booking_id:String(b.id),
+      p_home_agent_username:String(localUser.u),
+      p_campaign:String(campaign),
+      p_approved:approved
+    });
+    if(error)throw error;
+  }
+}
+
+async function openHomeAgentEarnings(){
+  if(!db.user||db.user.role!=='home_agent')return;
+  try{
+    const supabase=window.supabase.createClient(
+      'https://cbznvkijchjptsthumyb.supabase.co',
+      'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'
+    );
+    let {data:{session},error:sErr}=await supabase.auth.getSession();
+
+    if(!session){
+      const authEmail=(db.user?.u||'').toLowerCase()+'@danke-work.de';
+      const retry=await supabase.auth.signInWithPassword({
+        email:authEmail,
+        password:db.user?.p||''
+      });
+      session=retry.data?.session||null;
+      sErr=retry.error||null;
+    }
+
+    if(sErr||!session){
+      const authEmail=(db.user?.u||'').toLowerCase()+'@danke-work.de';
+      console.error('Home Agent payment session:',authEmail,sErr?.message||'Session yok');
+      return alert(
+        'Home Agent ödeme oturumu oluşturulamadı.\n\n'+
+        'Sistem giriş adresi: '+authEmail+'\n\n'+
+        'Lütfen çıkış yapıp Home Agent hesabıyla tekrar giriş yap.'
+      );
+    }
+
+    const {data:profile,error:profileError}=await supabase
+      .from('profiles').select('id,role,is_active,username')
+      .eq('id',session.user.id).maybeSingle();
+
+    if(profileError||!profile||profile.role!=='home_agent'||profile.is_active!==true){
+      await supabase.auth.signOut();
+      return alert('Home Agent hesabının ödeme oturumu doğrulanamadı. Lütfen çıkış yapıp tekrar giriş yap.');
+    }
+
+    // First push all locally approved/rejected Home Agent appointments to the
+    // persistent ledger. This is idempotent by local_booking_id.
+    await syncHomeAgentLocalEarnings(supabase,session.user.id);
+
+    const [bRes,eRes,aRes,pRes,hRes]=await Promise.all([
+      supabase.from('home_agent_balances').select('*').eq('home_agent_id',session.user.id).maybeSingle(),
+      supabase.from('home_earnings').select('*').eq('home_agent_id',session.user.id).order('approved_at',{ascending:false}).limit(50),
+      supabase.from('home_agent_adjustments').select('*').eq('home_agent_id',session.user.id).order('created_at',{ascending:false}).limit(50),
+      supabase.from('home_payout_requests').select('*').eq('home_agent_id',session.user.id).order('requested_at',{ascending:false}).limit(30),
+      supabase.from('home_agents').select('appointment_rate_eur,account_holder,iban,pay_model,account_status').eq('profile_id',session.user.id).maybeSingle()
+    ]);
+
+    if(bRes.error)throw bRes.error;
+    if(eRes.error)throw eRes.error;
+    if(aRes.error)throw aRes.error;
+    if(pRes.error)throw pRes.error;
+
+    const local=db.user||{};
+    if(!hRes.data)return alert('Home Agent ödeme profili bulunamadı. Lütfen Admin > Personeller bölümünden bu hesabın Home Agent olarak kaydını kontrol et.');
+
+    const b=bRes.data||{available_balance:0,total_earned:0,adjusted_total:0,pending_payout:0};
+    const earnings=eRes.data||[];
+    const adjustments=aRes.data||[];
+    const payouts=pRes.data||[];
+    const home=hRes.data;
+
+    // Count is persistent and therefore survives a browser refresh.
+    const approvedCount=earnings.filter(x=>x.earning_status==='earned').length;
+    document.getElementById('homeAgentPanelModal')?.remove();
+
+    document.getElementById('app').insertAdjacentHTML('beforeend',`
+      <div class="modalBack" id="homeAgentPanelModal">
+        <div class="modal" style="max-width:980px">
+          <div class="modalTitleRow">
+            <div>
+              <div class="modalKicker">🏠 DANKE HOME · HOME AGENT</div>
+              <h3>Kazancım</h3>
+              <div style="color:#748096;font-size:12px">Bu panel doğrudan Danke Kalender içinde çalışır.</div>
+            </div>
+            <span class="statusPill approved">${homeEuro(b.available_balance)}</span>
+          </div>
+
+          <div class="homeAgentBalanceGrid">
+            <div class="homeAgentMoneyCard primaryCard"><label>ÇEKİLEBİLİR BAKİYE</label><b>${homeEuro(b.available_balance)}</b><button class="action blue" onclick="requestHomeAgentPayout()">💶 Auszahlung</button></div>
+            <div class="homeAgentMoneyCard"><label>TOPLAM KAZANÇ</label><b>${homeEuro(b.total_earned)}</b><span>${approvedCount} onaylı Termin</span></div>
+            <div class="homeAgentMoneyCard"><label>BEKLEYEN ÖDEME</label><b>${homeEuro(b.pending_payout)}</b><span>🕒 Henüz ödenmemiş talepler</span></div>
+            <div class="homeAgentMoneyCard"><label>OK BAŞINA</label><b>${homeEuro(home.appointment_rate_eur||local.appointmentRate||0)}</b><span>personele özel ücret</span></div>
+          </div>
+
+          <div class="homeAgentGrid2">
+            <div class="hrPanel">
+              <h4>Son Onaylı Terminler</h4>
+              <div class="hrTableWrap">
+                <table class="hrTable">
+                  <thead><tr><th>Tarih</th><th>Kampanya</th><th>Tutar</th></tr></thead>
+                  <tbody>${earnings.length?earnings.map(x=>`<tr><td>${new Date(x.approved_at).toLocaleDateString('tr-TR')}</td><td>${esc(x.campaign)}</td><td><b class="homePlus">+${homeEuro(x.amount_eur)}</b></td></tr>`).join(''):'<tr><td colspan="3" class="hrEmpty">Henüz onaylı Termin yok.</td></tr>'}</tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="hrPanel">
+              <h4>Ceza / Kesinti / Bonus / Avans</h4>
+              <div class="hrTableWrap">
+                <table class="hrTable">
+                  <thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th></tr></thead>
+                  <tbody>${adjustments.length?adjustments.map(x=>{const plus=['bonus','credit'].includes(x.adjustment_type);return `<tr><td>${new Date(x.created_at).toLocaleDateString('tr-TR')}</td><td>${esc(x.adjustment_type)}<br><span style="font-size:10px;color:#748096">${esc(x.reason)}</span></td><td><b class="${plus?'homePlus':'homeMinus'}">${plus?'+':'−'}${homeEuro(x.amount_eur)}</b></td></tr>`}).join(''):'<tr><td colspan="3" class="hrEmpty">Henüz işlem yok.</td></tr>'}</tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="hrPanel" style="margin-top:12px">
+            <h4>Auszahlung Historie</h4>
+            <div class="hrTableWrap">
+              <table class="hrTable">
+                <thead><tr><th>Tarih</th><th>Tutar</th><th>Durum</th></tr></thead>
+                <tbody>${payouts.length?payouts.map(x=>{
+  const statusClass=({'paid':'paid','processing':'processing','requested':'requested','rejected':'rejected','cancelled':'rejected'})[x.status]||'requested';
+  const statusText=({'paid':'✅ ÖDENDİ','processing':'⏳ İŞLEMDE','requested':'🕒 BEKLİYOR','rejected':'❌ REDDEDİLDİ','cancelled':'❌ İPTAL'})[x.status]||homePayoutLabel(x.status);
+  const detail=x.status==='paid'&&x.processed_at?`<small class="payout-date">Ödeme: ${new Date(x.processed_at).toLocaleString('tr-TR')}</small>`:x.status==='processing'?`<small class="payout-date">Ödeme işlemi devam ediyor</small>`:'';
+  return `<tr>
+    <td>${new Date(x.requested_at).toLocaleString('tr-TR')}${detail}</td>
+    <td><b>${homeEuro(x.amount_eur)}</b></td>
+    <td><span class="payoutStatus ${statusClass}">${statusText}</span>${x.status==='paid'&&x.payment_reference?`<small class="payout-date">Ref: ${esc(x.payment_reference)}</small>`:''}</td>
+  </tr>`;
+}).join(''):'<tr><td colspan="3" class="hrEmpty">Henüz ödeme talebi yok.</td></tr>'}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="homeAgentInfoBar">
+            <div><span>Kontoinhaber</span><b>${esc(home.account_holder||local.accountHolder||'—')}</b></div>
+            <div><span>IBAN</span><b>${esc(home.iban||local.iban||'—')}</b></div>
+            <div><span>Ödeme modeli</span><b>Onaylanan Termin başına</b></div>
+          </div>
+
+          <div class="actions">
+            <button class="action gray" onclick="document.getElementById('homeAgentPanelModal')?.remove()">Kapat</button>
+          </div>
+        </div>
+      </div>`);
+  }catch(e){
+    console.error(e);
+    alert('Kazanç bilgileri alınamadı: '+(e?.message||e));
+  }
+}
+
+async function requestHomeAgentPayout(){
+  try{
+    const supabase=window.supabase.createClient(
+      'https://cbznvkijchjptsthumyb.supabase.co',
+      'sb_publishable_at_mQ76FCeMmMPk-nvN3_g_zG5KT4RG'
+    );
+    const {data:{session},error:sErr}=await supabase.auth.getSession();
+    if(sErr||!session)return alert('Oturum bulunamadı.');
+    const {data:b,error:bErr}=await supabase.from('home_agent_balances').select('available_balance').eq('home_agent_id',session.user.id).maybeSingle();
+    if(bErr)throw bErr;
+    const available=Number(b?.available_balance||0);
+    if(available<=0)return alert('Şu anda çekilebilir bir bakiyen yok.');
+    const raw=prompt(`Ne kadar çekmek istiyorsun?\nÇekilebilir bakiye: ${homeEuro(available)}`,available.toFixed(2));
+    if(raw===null)return;
+    const amount=Number(String(raw).replace(',','.'));
+    if(!Number.isFinite(amount)||amount<=0||amount>available)return alert('Lütfen geçerli ve bakiyeni aşmayan bir tutar gir.');
+    const {error}=await supabase.rpc('home_request_payout',{p_amount:amount});
+    if(error)throw error;
+    alert(`Auszahlung talebin oluşturuldu: ${homeEuro(amount)}.\nAdmin ödeme işlemini mesai saatlerinde görecek.`);
+    await openHomeAgentEarnings();
+  }catch(e){
+    alert('Auszahlung talebi oluşturulamadı: '+(e?.message||e));
+  }
+}
+async function openHomeAgentEarningsForAdmin(u){
+  alert('Home Agent kazanç ve ödeme detaylarını DANKE HOME → Home Agenten bölümünden yönetebilirsin.');
+}
 function openMyPayroll(){ensurePayrollData();openPayrollViewer(db.user.u,currentMonthValue())}
 function openPayrollViewer(u,month=currentMonthValue()){
   ensurePayrollData();const r=payrollCalc(u,month);if(!r)return;const p=r.e.payroll;const notices=(p.notifications||[]).slice().reverse().slice(0,8),notes=(p.notes||[]).slice().reverse().slice(0,8),userName=esc(r.e.name),canManage=db.user.role==='admin';
@@ -1553,12 +1633,12 @@ function openPayrollViewer(u,month=currentMonthValue()){
   document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="payrollViewer"><div class="modal payrollModal"><div class="modalTitleRow"><div><div class="modalKicker">MAAŞ ÖZETİ</div><h3>${userName} · ${esc(r.mb.label)}</h3></div><span class="statusPill approved">${money(r.remaining)}</span></div><div class="hrStats"><div class="hrStat"><label>Aylık maaş</label><b>${money(r.monthly)}</b></div><div class="hrStat green"><label>Anlık hakediş</label><b>${money(r.earned)}</b></div><div class="hrStat"><label>Avans</label><b>${money(r.advanceTotal)}</b></div><div class="hrStat red"><label>Kesinti</label><b>${money(r.absenceDeduction+r.otherDeduction)}</b></div><div class="hrStat"><label>Mazeretsiz gün</label><b>${r.absenceDays}</b></div><div class="hrStat green"><label>Ödenecek kalan</label><b>${money(r.remaining)}</b></div></div><div class="hrPanel"><h4>Hesaplama Özeti</h4><div class="hrHelp">${r.manualMode?'Bu dönem için hakediş Admin tarafından manuel belirlenmiştir.':'Bu dönem için hakediş otomatik hesaplanmıştır.'}</div><div class="hrHelp">Otomatik hesaplama: Aylık maaş + bonus − mazeretsiz gün kesintisi − diğer kesintiler.</div><div class="hrHelp">Ödenecek kalan = Anlık hakediş − Avans.</div>${r.leaves?.length?`<div class="hrHelp">Kayıtlı yıllık izin toplamı: <b>${leaveDays} gün</b></div>`:''}</div><div class="actions"><button class="action gray" onclick="document.getElementById('payrollViewer')?.remove()">Kapat</button>${canManage?`<button class="action blue" onclick="document.getElementById('payrollViewer')?.remove();openPayrollAdmin('${esc(u)}')">Yönet</button>`:''}</div></div></div>`);
 }
 function managePayrolls(month=currentMonthValue()){
-  if(db.user.role!=='admin')return;ensurePayrollData();const mb=monthBounds(month);const users=(db.employees||[]).map(e=>payrollCalc(e.u,month)).filter(Boolean).sort((a,b)=>b.remaining-a.remaining);
+  if(db.user.role!=='admin')return;ensurePayrollData();const mb=monthBounds(month);const users=(db.employees||[]).filter(e=>e.role!=='home_agent').map(e=>payrollCalc(e.u,month)).filter(Boolean).sort((a,b)=>b.remaining-a.remaining);
   document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="payrollList"><div class="modal payrollModal"><div class="modalTitleRow"><div><div class="modalKicker">İK / MAAŞ YÖNETİMİ</div><h3>Personel Maaşları</h3><div class="hrSub">${mb.label} · Agent ve Admin bazında maaş, avans, kesinti, prim, izin ve dosya yönetimi.</div></div></div><div class="adminBar payrollListFilters" style="margin-top:12px"><div><label>DÖNEM</label><input id="payrollListMonth" type="month" value="${esc(month)}" onchange="refreshPayrollList()"></div><div class="payrollSearchWrap"><label>PERSONEL ARA</label><input id="payrollListSearch" type="search" placeholder="Agent / admin adı veya kullanıcı adı..." oninput="refreshPayrollList()"></div></div><div id="payrollListBody">${users.map((r,i)=>payrollListRow(r,i)).join('')}</div><div class="actions"><button class="action gray" onclick="document.getElementById('payrollList')?.remove();render()">Kapat</button></div></div></div>`);
 }
 function payrollListRow(r,i){const role=r.e.role==='admin'?'Admin':'Agent';return `<div class="payrollPersonRow"><div class="payrollPersonHead"><div class="payrollPersonName"><b>${esc(r.e.name)}</b><div class="payrollPersonRole">${esc(r.e.u)} · ${role}</div></div><div class="payrollPersonActions"><button class="action gray" onclick="openPayrollAdmin('${esc(r.e.u)}')">Yönet</button></div></div><div class="payrollPersonStats"><div class="payrollPersonStat"><label>HAKEDİŞ</label><b>${money(r.earned)}</b></div><div class="payrollPersonStat"><label>AVANS</label><b>${money(r.advanceTotal)}</b></div><div class="payrollPersonStat"><label>KESİNTİ</label><b>${money(r.absenceDeduction+r.otherDeduction)}</b></div><div class="payrollPersonStat remaining"><label>KALAN</label><b>${money(r.remaining)}</b></div></div></div>`}
 function payrollSearchNorm(v){return String(v??'').trim().toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
-function refreshPayrollList(){const m=document.getElementById('payrollListMonth')?.value||currentMonthValue();const box=document.getElementById('payrollListBody');if(!box)return;ensurePayrollData();const q=payrollSearchNorm(document.getElementById('payrollListSearch')?.value||'');const users=(db.employees||[]).map(e=>payrollCalc(e.u,m)).filter(Boolean).filter(r=>{if(!q)return true;return payrollSearchNorm(r.e.name).includes(q)||payrollSearchNorm(r.e.u).includes(q)}).sort((a,b)=>b.remaining-a.remaining||b.earned-a.earned||String(a.e.name).localeCompare(String(b.e.name),'tr'));box.innerHTML=users.map((r,i)=>payrollListRow(r,i)).join('')||(q?'<div style="padding:14px;color:#748096">Bu aramada personel bulunamadı.</div>':'<div style="padding:14px;color:#748096">Kullanıcı bulunmuyor.</div>');}
+function refreshPayrollList(){const m=document.getElementById('payrollListMonth')?.value||currentMonthValue();const box=document.getElementById('payrollListBody');if(!box)return;ensurePayrollData();const q=payrollSearchNorm(document.getElementById('payrollListSearch')?.value||'');const users=(db.employees||[]).filter(e=>e.role!=='home_agent').map(e=>payrollCalc(e.u,m)).filter(Boolean).filter(r=>{if(!q)return true;return payrollSearchNorm(r.e.name).includes(q)||payrollSearchNorm(r.e.u).includes(q)}).sort((a,b)=>b.remaining-a.remaining||b.earned-a.earned||String(a.e.name).localeCompare(String(b.e.name),'tr'));box.innerHTML=users.map((r,i)=>payrollListRow(r,i)).join('')||(q?'<div style="padding:14px;color:#748096">Bu aramada personel bulunamadı.</div>':'<div style="padding:14px;color:#748096">Kullanıcı bulunmuyor.</div>');}
 function openPayrollAdmin(u,month=currentMonthValue()){
   if(db.user.role!=='admin')return;ensurePayrollData();const e=db.employees.find(x=>x.u===u);if(!e)return;const p=e.payroll,r=payrollCalc(u,month),manualVal=Object.prototype.hasOwnProperty.call(p.manualEarnedByMonth||{},month)?Number(p.manualEarnedByMonth[month]):r.autoEarned,manualOn=!!p.manualModeByMonth?.[month];
   const entryRows=(type,rows,cols,empty)=>rows.length?rows.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(x=>`<tr><td>${esc(x.date||'')}</td>${cols.map(c=>`<td>${c==='amount'?money(x.amount):c==='days'?esc(x.days):esc(x.note||'')}</td>`).join('')}<td><button class="hrAction gray" onclick="editPayrollEntry('${esc(u)}','${type}','${esc(x.id)}')">Düzenle</button> <button class="hrAction red" onclick="deletePayrollEntry('${esc(u)}','${type}','${esc(x.id)}')">Sil</button></td></tr>`).join(''):empty;
@@ -1630,15 +1710,16 @@ function markConversationRead(otherU){
   db.messages.forEach(m=>{if(m.from===otherU&&m.to===db.user.u&&!m.read){m.read=true;changed=true;}});
   if(changed)save();
 }
-async function openMessages(otherU=''){
+function openMessages(otherU=''){
   if(!db.user)return;
   if(String(dkPersistentAlertToken||'').startsWith('msg:'))stopPersistentAlertSound();
-  await syncOnlineCommunication();
-  const people=messageParticipants(),selected=otherU||people[0]?.u||'',modalId='messagesModal';
+  db.messages=Array.isArray(db.messages)?db.messages:[];
+  const people=messageParticipants();
+  let selected=otherU || people[0]?.u || '';
+  if(selected)markConversationRead(selected);
+  const modalId='messagesModal';
   document.getElementById(modalId)?.remove();
-  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="${modalId}"><div class="modal" style="max-width:900px"><div class="modalTitleRow"><div><div class="modalKicker">DAHİLİ İLETİŞİM</div><h3>Mesajlar</h3><div style="color:#748096;font-size:12px">Agent ve Adminler birbirlerine özel mesaj gönderebilir.</div></div><span class="statusPill ${unreadMessageCount()?'pending':'approved'}">${unreadMessageCount()?'YENİ MESAJ':'MESAJLAR'}</span></div><div class="messageLayout" style="margin-top:14px"><div class="messagePeople" id="messagePeople">${people.map(p=>{const unread=db.messages.filter(m=>m.from===p.u&&m.to===db.user.u&&!m.read).length;return `<div class="messagePerson ${p.u===selected?'active':''}" onclick="selectMessagePerson('${esc(p.u)}')"><b>${esc(p.name)} ${unread?`<span class="unreadDot">${unread}</span>`:''}</b><small>${p.role==='admin'?'Admin':'Agent'} · ${esc(p.u)}</small></div>`}).join('')||'<div style="padding:18px;color:#748096">Mesaj gönderebileceğin başka kullanıcı yok.</div>'}</div><div class="messageChat" id="messageChat">${renderMessageChat(selected)}</div></div><div class="actions"><button class="action gray" onclick="document.getElementById('${modalId}')?.remove();render()">Kapat</button></div></div></div>`);
-  await markMessagesRead(selected);
-  const t=document.getElementById('messageThread');if(t)t.scrollTop=t.scrollHeight;
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="${modalId}"><div class="modal" style="max-width:900px"><div class="modalTitleRow"><div><div class="modalKicker">DAHİLİ İLETİŞİM</div><h3>Mesajlar</h3><div style="color:#748096;font-size:12px">Agent ve Adminler birbirlerine özel mesaj gönderebilir.</div></div><span class="statusPill ${unreadMessageCount()?'pending':'approved'}">${unreadMessageCount()?'YENİ MESAJ':'MESAJLAR'}</span></div><div class="messageLayout" style="margin-top:14px"><div class="messagePeople" id="messagePeople">${people.map(p=>{const unread=db.messages.filter(m=>m.from===p.u&&m.to===db.user.u&&!m.read).length;return `<div class="messagePerson ${p.u===selected?'active':''}" onclick="selectMessagePerson('${esc(p.u)}')"><b>${esc(p.name)} ${unread?`<span class=\"unreadDot\">${unread}</span>`:''}</b><small>${p.role==='admin'?'Admin':'Agent'} · ${esc(p.u)}</small></div>`}).join('')||'<div style="padding:18px;color:#748096">Mesaj gönderebileceğin başka kullanıcı yok.</div>'}</div><div class="messageChat" id="messageChat">${renderMessageChat(selected)}</div></div><div class="actions"><button class="action gray" onclick="document.getElementById('${modalId}')?.remove();render()">Kapat</button></div></div></div>`);
 }
 function renderMessageChat(otherU){
   if(!otherU)return '<div class="messageEmpty">Soldan bir kullanıcı seç.</div>';
@@ -1649,57 +1730,23 @@ function renderMessageChat(otherU){
   const bubbles=list.map(m=>`<div class="messageBubble ${m.from===db.user.u?'out':'in'}"><div style="white-space:pre-wrap">${esc(m.body)}</div><div class="messageMeta">${m.from===db.user.u?'Sen':esc(other.name)} · ${new Date(m.createdAt).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`).join('')||'<div class="messageEmpty">Henüz mesaj yok.<br>İlk mesajı sen gönder.</div>';
   return `<div class="messageChatHead">${esc(other.name)} <span style="font-size:11px;color:#7a8799;font-weight:500">· ${other.role==='admin'?'Admin':'Agent'}</span></div><div class="messageThread" id="messageThread">${bubbles}</div><div class="messageComposer"><textarea id="messageBody" placeholder="Mesajınızı yazın..." onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter')sendInternalMessage('${esc(otherU)}')"></textarea><button class="action blue" onclick="sendInternalMessage('${esc(otherU)}')">Gönder</button></div>`;
 }
-async function selectMessagePerson(otherU){
+function selectMessagePerson(otherU){
   const box=document.getElementById('messageChat');if(!box)return;
   document.querySelectorAll('#messagePeople .messagePerson').forEach(el=>el.classList.remove('active'));
   [...document.querySelectorAll('#messagePeople .messagePerson')].find(el=>el.getAttribute('onclick')?.includes(`'${otherU}'`))?.classList.add('active');
   box.innerHTML=renderMessageChat(otherU);
-  await markMessagesRead(otherU);
-  await syncOnlineCommunication();
-  box.innerHTML=renderMessageChat(otherU);
   setTimeout(()=>{const t=document.getElementById('messageThread');if(t)t.scrollTop=t.scrollHeight;},0);
 }
-async function sendInternalMessage(otherU){
+function sendInternalMessage(otherU){
   if(!db.user||!otherU)return;
   const body=(document.getElementById('messageBody')?.value||'').trim();
   if(!body)return alert('Mesajınızı yazın.');
-  const other=(db.employees||[]).find(e=>e.u===otherU);
-  if(!other?.authId)return alert('Alıcı kullanıcı bulunamadı.');
-  try{
-    const now=new Date().toISOString();
-    const {data:row,error}=await dkSupabase.from('messages').insert({
-      sender_id:db.user.authId,
-      receiver_id:other.authId,
-      body,
-      read_at:null,
-      created_at:now
-    }).select('*').single();
-    if(error)throw error;
-    audit('message.sent','message',row?.id||crypto.randomUUID(),other.name||otherU,`Mesaj gönderildi: ${other.name||otherU}`);
-    await syncOnlineCommunication();
-    await selectMessagePerson(otherU);
-  }catch(e){alert(`Mesaj gönderilemedi: ${e.message||e}`);}
-}
-async function dismissInternalMessage(id, openAfter=false, otherU=''){
-  if(!db.user)return;
-  const msg=(db.messages||[]).find(m=>String(m.id)===String(id));
-  stopPersistentAlertSound('msg:'+id);
-  document.getElementById('messageNoticeModal')?.remove();
-  if(msg){
-    msg.read=true;
-    msg.readAt=new Date().toISOString();
-  }
+  db.messages=Array.isArray(db.messages)?db.messages:[];
+  const msg={id:crypto.randomUUID(),from:db.user.u,to:otherU,body,createdAt:new Date().toISOString(),read:false};db.messages.push(msg);const other=(db.employees||[]).find(e=>e.u===otherU);audit('message.sent','message',msg.id,other?.name||otherU,`Mesaj gönderildi: ${other?.name||otherU}`);
   save();
-  try{
-    const r=await dkSupabase.from('messages').update({read_at:new Date().toISOString()}).eq('id',id).eq('receiver_id',db.user.authId).is('read_at',null);
-    if(r.error)console.warn('Mesaj okundu işaretlenemedi:',r.error);
-    else if(dkCommunicationReady)await syncOnlineCommunication({renderAfter:false});
-  }catch(e){ console.warn('Mesaj kapatma/okundu işlemi:',e); }
-  if(openAfter && otherU){
-    await openMessages(otherU);
-  }
+  selectMessagePerson(otherU);
+  const t=document.getElementById('messageThread');if(t)t.scrollTop=t.scrollHeight;
 }
-
 function showUnreadInternalMessageNotice(){
   if(!db.user)return;
   db.messages=Array.isArray(db.messages)?db.messages:[];
@@ -1707,437 +1754,12 @@ function showUnreadInternalMessageNotice(){
   if(!unread.length)return;
   const m=unread[0], sender=(db.employees||[]).find(e=>e.u===m.from);
   if(document.getElementById('privateNoticeModal')||document.getElementById('messageNoticeModal'))return;
-  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="messageNoticeModal"><div class="modal" style="max-width:560px"><div class="modalTitleRow"><div><div class="modalKicker">✉️ YENİ MESAJ</div><h3>${esc(sender?.name||m.from)}</h3></div><span class="statusPill pending">MESAJ</span></div><div style="font-size:15px;line-height:1.6;color:#24344d;white-space:pre-wrap;margin-top:10px">${esc(m.body)}</div><div class="payrollMini" style="margin-top:12px">${new Date(m.createdAt).toLocaleString('tr-TR')}</div><div class="actions"><button class="action gray" onclick="dismissInternalMessage('${esc(m.id)}',false,'')">Kapat</button><button class="action blue" onclick="dismissInternalMessage('${esc(m.id)}',true,'${esc(m.from)}')">Mesajı Aç</button></div></div></div>`);
+  document.getElementById('app').insertAdjacentHTML('beforeend',`<div class="modalBack" id="messageNoticeModal"><div class="modal" style="max-width:560px"><div class="modalTitleRow"><div><div class="modalKicker">✉️ YENİ MESAJ</div><h3>${esc(sender?.name||m.from)}</h3></div><span class="statusPill pending">MESAJ</span></div><div style="font-size:15px;line-height:1.6;color:#24344d;white-space:pre-wrap;margin-top:10px">${esc(m.body)}</div><div class="payrollMini" style="margin-top:12px">${new Date(m.createdAt).toLocaleString('tr-TR')}</div><div class="actions"><button class="action gray" onclick="document.getElementById('messageNoticeModal')?.remove()">Daha sonra</button><button class="action blue" onclick="document.getElementById('messageNoticeModal')?.remove();openMessages('${esc(m.from)}')">Mesajı Aç</button></div></div></div>`);
   startPersistentAlertSound('message','msg:'+m.id);
 }
 
 function shiftDay(delta){let d=new Date(viewDate+'T12:00:00');d.setDate(d.getDate()+delta);viewDate=d.toISOString().slice(0,10);render()}
-
-/* =========================================================
-   V93: ONLINE MESAJ + DUYURU (ADMIN DAHİL)
-   Mesajlar ve duyurular Supabase ortak veritabanından okunur/yazılır.
-   ========================================================= */
-let dkCommunicationBusy=false,dkCommunicationReady=false,dkCommunicationChannel=null;
-function dkPick(o,ks,f=''){if(!o||typeof o!=='object')return f;for(const k of ks)if(o[k]!==undefined&&o[k]!==null)return o[k];return f;}
-function dkBool(v,f=false){if(typeof v==='boolean')return v;if(v===1||v==='1'||v==='true')return true;if(v===0||v==='0'||v==='false')return false;return f;}
-function dkMessageToLocal(m){const si=dkPick(m,['sender_id','from_id','from_user_id','sender']),ri=dkPick(m,['receiver_id','recipient_id','to_id','to_user_id','recipient']),sp=(db.employees||[]).find(e=>e.authId===si||e.u===si),rp=(db.employees||[]).find(e=>e.authId===ri||e.u===ri);const readAt=dkPick(m,['read_at'],null);return{id:m.id,from:sp?.u||si||dkPick(m,['from'],''),to:rp?.u||ri||dkPick(m,['to'],''),fromAuthId:si,toAuthId:ri,body:String(dkPick(m,['body','message','content'],'')||''),createdAt:dkPick(m,['created_at','createdAt'],new Date().toISOString()),read:readAt?true:dkBool(dkPick(m,['is_read','read','acknowledged'],false))};}
-function dkAnnouncementToLocal(a,acks){const byId=dkPick(a,['created_by','author_id','sender_id','by_id','user_id']),author=(db.employees||[]).find(e=>e.authId===byId||e.u===byId),reads=(acks||[]).filter(x=>String(dkPick(x,['announcement_id','ann_id']))===String(a.id)).map(x=>dkPick(x,['user_id','ack_user_id','profile_id'])).filter(Boolean).map(uid=>{const p=(db.employees||[]).find(e=>e.authId===uid||e.u===uid);return p?.u||uid;});return{id:a.id,title:String(dkPick(a,['title','name'],'')||''),body:String(dkPick(a,['body','message','content'],'')||''),createdAt:dkPick(a,['created_at','createdAt'],new Date().toISOString()),by:author?.u||byId||dkPick(a,['by'],'admin'),byAuthId:byId||'',reads};}
-async function dkTryInsert(table,candidates){let last=null;for(const payload of candidates){const r=await dkSupabase.from(table).insert(payload).select('*').single();if(!r.error)return r.data;last=r.error;const msg=String(r.error.message||'').toLowerCase();if(!/column|schema cache|does not exist|could not find|unknown/.test(msg))break;}throw last||new Error(table+' kaydı oluşturulamadı.');}
-async function syncOnlineCommunication({renderAfter=false}={}){if(!db.user||dkCommunicationBusy)return;dkCommunicationBusy=true;try{const[pr,mr,ar,qr]=await Promise.all([dkSupabase.from('profiles').select('id,full_name,username,role,is_active').eq('is_active',true).order('full_name'),dkSupabase.from('messages').select('*').order('created_at',{ascending:true}),dkSupabase.from('announcements').select('*').order('created_at',{ascending:true}),dkSupabase.from('announcement_acknowledgements').select('*')]);if(pr.error)throw pr.error;if(mr.error)throw mr.error;if(ar.error)throw ar.error;if(qr.error)throw qr.error;const ps=pr.data||[];db.employees=ps.map(p=>{const old=(db.employees||[]).find(e=>e.authId===p.id||e.u===p.username)||{};return {...old,u:p.username,name:p.full_name,role:p.role,authId:p.id,email:p.email||old.email||'',is_active:p.is_active,p:old.p||''};});const me=db.user.authId,mp=ps.find(p=>p.id===me)||ps.find(p=>p.username===db.user.u);if(mp)db.user={...db.user,u:mp.username,name:mp.full_name,role:mp.role,authId:mp.id};db.messages=(mr.data||[]).map(dkMessageToLocal).filter(m=>m.fromAuthId===me||m.toAuthId===me||m.from===db.user.u||m.to===db.user.u);db.announcements=(ar.data||[]).map(a=>dkAnnouncementToLocal(a,qr.data||[]));dkCommunicationReady=true;save();if(renderAfter)render();}catch(e){console.error('Danke Kalender online communication sync:',e);dkCommunicationReady=false;}finally{dkCommunicationBusy=false;}}
-async function markMessagesRead(otherU){const other=(db.employees||[]).find(e=>e.u===otherU);if(!other?.authId||!db.user?.authId)return;const now=new Date().toISOString();const rec=(db.messages||[]).filter(m=>m.fromAuthId===other.authId&&m.toAuthId===db.user.authId&&!m.read);for(const m of rec){const r=await dkSupabase.from('messages').update({read_at:now}).eq('id',m.id).is('read_at',null);if(!r.error)m.read=true;}}
-
-/* =========================================================
-   V78 - ONLINE CALENDAR CORE
-   Routes + appointments are now synced with Danke Kalender
-   Supabase. LocalStorage remains only as a UI cache for the
-   existing non-calendar modules until they are migrated.
-   ========================================================= */
-let dkOnlineChannel=null;
-let dkOnlineSyncBusy=false;
-let dkOnlineReady=false;
-let dkOverviewBookings={};
-
-function dkTimeRangeParts(range){
-  const m=String(range||'').match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/);
-  return m?{start:m[1],end:m[2]}:{start:'00:00',end:'01:00'};
-}
-function dkTimeHHMM(v){
-  const s=String(v||'');
-  return s.length>=5?s.slice(0,5):s;
-}
-function dkDateRangeId(){ return `${viewDate}_${db.user?.authId||db.user?.u||'user'}`; }
-function dkRouteToLocal(r){
-  const fallbackCol=Math.max(0,campaigns.findIndex(c=>c[0]===r.campaign));
-  const col=Number.isInteger(r.column_position) ? r.column_position : fallbackCol;
-  return {
-    id:r.id,
-    date:r.route_date,
-    time:`${dkTimeHHMM(r.time_start)}-${dkTimeHHMM(r.time_end)}`,
-    campaign:r.campaign,
-    campaignColor:r.campaign_color||campObj(r.campaign)[1],
-    col,
-    column_position:col,
-    slot_position:r.slot_position,
-    createdBy:r.created_by||''
-  };
-}
-function dkAppointmentToLocal(a,profilesById){
-  const p=profilesById.get(a.agent_id)||{};
-  const routeTime=a.time_start&&a.time_end?`${dkTimeHHMM(a.time_start)}-${dkTimeHHMM(a.time_end)}`:'';
-  const routeCol=Math.max(0,campaigns.findIndex(c=>c[0]===a.campaign));
-  return {
-    id:a.id,
-    slotId:a.route_id||null,
-   rejectedSlotId:a.rejected_route_id||null,
-    employee:p.username||a.agent_id,
-    employeeName:p.full_name||p.username||'Agent',
-    status:a.status||'pending',
-    createdAt:a.created_at||new Date().toISOString(),
-    updatedAt:a.updated_at||a.created_at||new Date().toISOString(),
-    routeDate:a.appointment_date||'',
-    routeTime,
-    routeCampaign:a.campaign||'',
-    routeCol,
-    rejectedDate:a.status==='rejected'?(a.appointment_date||''):undefined,
-    rejectedTime:a.status==='rejected'?routeTime:undefined,
-    rejectedCampaign:a.status==='rejected'?(a.campaign||''):undefined,
-    customerName:[a.kunde_name,a.vorname].filter(Boolean).join(' '),
-    kundeName:a.kunde_name||'',
-    vorname:a.vorname||'',
-    alter:a.alter||'',
-    strasse:a.strasse||'',
-    plz:a.plz||'',
-    ort:a.ort||'',
-    festnetz:a.festnetz||'',
-    mobil:a.mobil||'',
-    entscheidungstraeger:a.entscheidungstraeger||'',
-    gesprochenMit:a.gesprochen_mit||'',
-    baujahr:a.baujahr||'',
-    teilnehmer:a.teilnehmer||'',
-    heizart:a.heizart||'',
-    heizBaujahr:a.baujahr||'',
-    freiReihenhaus:a.frei_reihenhaus||'',
-    verbrauch:a.verbrauch||'',
-    vorlauftemperatur:a.vorlauftemperatur||'',
-    rohrsystem:a.rohrsystem||'',
-    beheizteWohnflaeche:a.beheizte_wohnflaeche||'',
-    notes:a.notes||'',
-    controlNote:a.control_note||'',
-    controlAt:a.control_at||'',
-    controlBy:a.control_by||'',
-    authAgentId:a.agent_id,
-    createdByAuthId:a.created_by
-  };
-}
-
-async function syncOnlineCalendar({renderAfter=false}={}){
-  if(!db.user||dkOnlineSyncBusy)return;
-  dkOnlineSyncBusy=true;
-  try{
-    const [routesRes, apptRes, profilesRes, overviewRes] = await Promise.all([
-      dkSupabase.from('routes').select('*').eq('route_date',viewDate).order('time_start').order('slot_position'),
-      dkSupabase.from('appointments').select('*').order('appointment_date').order('time_start'),
-      dkSupabase.from('profiles').select('id,full_name,username,role,is_active').eq('is_active',true).order('full_name'),
-      dkSupabase.rpc('get_calendar_overview',{p_date:viewDate})
-    ]);
-    if(routesRes.error)throw routesRes.error;
-    if(apptRes.error)throw apptRes.error;
-    if(profilesRes.error)throw profilesRes.error;
-    if(overviewRes.error)throw overviewRes.error;
-
-    const profilesById=new Map((profilesRes.data||[]).map(p=>[p.id,p]));
-    db.slots=(routesRes.data||[]).map(dkRouteToLocal);
-    db.bookings=(apptRes.data||[]).map(a=>dkAppointmentToLocal(a,profilesById));
-    dkOverviewBookings={};
-    (overviewRes.data||[]).forEach(o=>{
-      if(!o.booking_id||!o.route_id)return;
-      if(db.bookings.some(b=>b.id===o.booking_id))return;
-      dkOverviewBookings[o.route_id]={
-        id:o.booking_id,
-        slotId:o.route_id,
-        employee:o.agent_username||o.agent_id||'',
-        employeeName:o.agent_name||o.agent_username||'Agent',
-        status:o.booking_status||'pending',
-        routeDate:o.route_date,
-        routeTime:`${dkTimeHHMM(o.time_start)}-${dkTimeHHMM(o.time_end)}`,
-        routeCampaign:o.campaign||'',
-        routeCol:Math.max(0,campaigns.findIndex(c=>c[0]===o.campaign)),
-        overviewOnly:true
-      };
-    });
-    dkOnlineReady=true;
-    save();
-    if(renderAfter && !document.querySelector('.modalBack'))render();
-  }catch(e){
-    console.error('Danke Kalender online sync:',e);
-    dkOnlineReady=false;
-  }finally{
-    dkOnlineSyncBusy=false;
-  }
-}
-function startOnlineRealtime(){
-  if(dkOnlineChannel){try{dkSupabase.removeChannel(dkOnlineChannel);}catch(e){}}
-  if(dkCommunicationChannel){try{dkSupabase.removeChannel(dkCommunicationChannel);}catch(e){}}
-  if(!db.user?.authId)return;
-  dkOnlineChannel=dkSupabase.channel(`dk-calendar-${db.user.authId}`)
-    .on('postgres_changes',{event:'*',schema:'public',table:'routes'},()=>syncOnlineCalendar({renderAfter:true}))
-    .on('postgres_changes',{event:'*',schema:'public',table:'appointments'},()=>syncOnlineCalendar({renderAfter:true}))
-   .on('postgres_changes',{
-  event:'*',
-  schema:'public',
-  table:'work_schedules'
-},async()=>{
-  await syncOnlineWorkSchedule();
-  render();
-})
-   .subscribe();
-  dkCommunicationChannel=dkSupabase.channel(`dk-communication-${db.user.authId}`)
-    .on('postgres_changes',{event:'*',schema:'public',table:'messages'},async()=>{await syncOnlineCommunication({renderAfter:false});checkForNewNotifications();})
-    .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
-    .on('postgres_changes',{event:'*',schema:'public',table:'announcement_acknowledgements'},async()=>{await syncOnlineCommunication({renderAfter:true});})
-    .subscribe();
-}
-function booking(slot){
-  const full=db.bookings.find(b=>b.slotId===slot.id);
-  return full||dkOverviewBookings[slot.id]||null;
-}
-function openBooking(id){
-  let b=db.bookings.find(x=>x.id===id);
-  if(!b){
-    const overview=Object.values(dkOverviewBookings).find(x=>x.id===id);
-    if(overview)return alert('Bu termin başka bir Agent\'e ait. Müşteri detaylarını yalnızca termin sahibi ve Admin görebilir.');
-    return alert('Termin bulunamadı.');
-  }
-  if(b.employee!==db.user.u&&db.user.role!=='admin')return alert('Bu termin detaylarını sadece sahibi ve admin görebilir.');
-  let s=b.slotId?db.slots.find(x=>x.id===b.slotId):{id:null,date:b.rejectedDate||b.routeDate||viewDate,time:b.rejectedTime||b.routeTime||'—',campaign:b.rejectedCampaign||b.routeCampaign||'—',col:b.routeCol};
-  document.getElementById('app').insertAdjacentHTML('beforeend',modalHtml(s,b));
-}
-function selectDate(v){
-  if(!v)return;
-  viewDate=v;
-  render();
-  syncOnlineCalendar({renderAfter:true});
-}
-function shiftDay(delta){
-  let d=new Date(viewDate+'T12:00:00');
-  d.setDate(d.getDate()+delta);
-  viewDate=d.toISOString().slice(0,10);
-  render();
-  syncOnlineCalendar({renderAfter:true});
-}
-
-async function createRouteAtTime(t,col){
-  if(db.user?.role!=='admin')return alert('Sadece Admin rota açabilir.');
-  const campaign=document.getElementById('rc')?.value||'';
-  if(!campaign)return;
-  const parts=dkTimeRangeParts(t);
-  const columnPosition=Number(col);
-  const same=db.slots.filter(s=>s.date===viewDate&&s.time===t&&s.campaign===campaign);
-  const slotPosition=same.length+1;
-  const payload={
-    route_date:viewDate,
-    time_start:parts.start,
-    time_end:parts.end,
-    campaign,
-    campaign_color:campObj(campaign)[1],
-    column_position:columnPosition,
-    slot_position:slotPosition,
-    created_by:db.user.authId
-  };
-  try{
-    const {data,error}=await dkSupabase.from('routes').insert(payload).select('*').single();
-    if(error)throw error;
-    const slot=dkRouteToLocal(data);
-    db.slots.push(slot);
-    audit('route.created','route',slot.id,`${campaign} · ${t}`,`Rota oluşturuldu: ${fmt(viewDate)} · ${t} · ${campaign}`);
-    save();closeModal();render();
-  }catch(e){alert(`Rota oluşturulamadı: ${e.message||e}`);}
-}
-
-async function saveBooking(slotId,bid){
-  let g=id=>(document.getElementById(id)?.value||'').trim();
-  const x={kundeName:g('f_kundeName'),vorname:g('f_vorname'),alter:g('f_alter'),strasse:g('f_strasse'),plz:g('f_plz'),ort:g('f_ort'),festnetz:g('f_festnetz'),mobil:g('f_mobil'),entscheidungstraeger:g('f_entscheidungstraeger'),gesprochenMit:g('f_gesprochenMit'),baujahr:g('f_baujahr'),teilnehmer:g('f_teilnehmer'),heizart:g('f_heizart'),heizBaujahr:g('f_heizBaujahr'),freiReihenhaus:g('f_freiReihenhaus'),verbrauch:g('f_verbrauch'),vorlauftemperatur:g('f_vorlauftemperatur'),rohrsystem:g('f_rohrsystem'),beheizteWohnflaeche:g('f_beheizteWohnflaeche')};
-  x.customerName=[x.kundeName,x.vorname].filter(Boolean).join(' ')||x.entscheidungstraeger||x.gesprochenMit||'';
-  const existing=bid?db.bookings.find(b=>b.id===bid):null;
-  const rs=db.slots.find(s=>s.id===slotId) || (existing?.slotId?db.slots.find(s=>s.id===existing.slotId):null);
-  if(!rs && !existing)return alert('Rota bulunamadı.');
-  const range=rs?dkTimeRangeParts(rs.time):dkTimeRangeParts(existing?.routeTime||'00:00-01:00');
-  const routeDate=rs?.date||existing?.routeDate||viewDate;
-  const routeCampaign=rs?.campaign||existing?.routeCampaign||'';
-  const payload={
-    route_id:rs?.id||existing?.slotId||null,
-    appointment_date:routeDate,
-    time_start:range.start,
-    time_end:range.end,
-    campaign:routeCampaign,
-    campaign_color:campObj(routeCampaign)[1],
-    agent_id:existing?.authAgentId||db.user.authId,
-    created_by:bid?(existing?.createdByAuthId||db.user.authId):db.user.authId,
-    kunde_name:x.kundeName,
-    vorname:x.vorname,
-    alter:x.alter,
-    strasse:x.strasse,
-    plz:x.plz,
-    ort:x.ort,
-    festnetz:x.festnetz,
-    mobil:x.mobil,
-    entscheidungstraeger:x.entscheidungstraeger,
-    gesprochen_mit:x.gesprochenMit,
-    baujahr:x.baujahr,
-    teilnehmer:x.teilnehmer,
-    heizart:x.heizart,
-    frei_reihenhaus:x.freiReihenhaus,
-    verbrauch:x.verbrauch,
-    vorlauftemperatur:x.vorlauftemperatur,
-    rohrsystem:x.rohrsystem,
-    beheizte_wohnflaeche:x.beheizteWohnflaeche
-  };
-  try{
-    if(bid){
-      const before=existing?JSON.parse(JSON.stringify(existing)):null;
-      const {data,error}=await dkSupabase.from('appointments').update(payload).eq('id',bid).select('*').single();
-      if(error)throw error;
-      const profilesRes=await dkSupabase.from('profiles').select('id,full_name,username').eq('id',data.agent_id).single();
-      const mapped=dkAppointmentToLocal(data,new Map(profilesRes.data?[[profilesRes.data.id,profilesRes.data]]:[]));
-      const idx=db.bookings.findIndex(b=>b.id===bid);
-      if(idx>=0)db.bookings[idx]=mapped;else db.bookings.push(mapped);
-      if(before){const changed=bookingChangedFields(before,mapped);if(changed.length)audit('booking.updated','booking',mapped.id,mapped.customerName||before.customerName,`Değiştirilen alanlar: ${changed.join(', ')}`);}
-    }else{
-      payload.status='pending';
-      const {data,error}=await dkSupabase.from('appointments').insert(payload).select('*').single();
-      if(error)throw error;
-      const mapped=dkAppointmentToLocal(data,new Map([[db.user.authId,{id:db.user.authId,full_name:db.user.name,username:db.user.u}]]));
-      db.bookings.push(mapped);
-      audit('booking.created','booking',mapped.id,mapped.customerName||'Termin',`Termin oluşturuldu: ${mapped.routeDate} · ${mapped.routeTime} · ${mapped.routeCampaign}`);
-    }
-    save();closeModal();await syncOnlineCalendar();render();
-  }catch(e){alert(`Termin kaydedilemedi: ${e.message||e}`);}
-}
-
-async function setStatus(id,status){
-  if(db.user.role!=='admin')return;
-  const b=db.bookings.find(x=>x.id===id);
-  if(!b)return;
-  const note=(document.getElementById('cnote')?.value||'').trim();
-  if(!note)return alert('Lütfen kontrol birimi notunu yaz.');
-  try{
-    const oldStatus=b.status;
-    const updateData={status,control_note:note};
-    // Reddedilen termin ana takvimden çıkar; tarih/saat/kampanya alanları kayıtta korunur.
-   if(status==='rejected'){
-  updateData.rejected_route_id=b.slotId||b.rejectedSlotId||null;
-  updateData.route_id=null;
-}
-    else if(!b.slotId && b.rejectedSlotId)updateData.route_id=b.rejectedSlotId;
-    const {error}=await dkSupabase.from('appointments').update(updateData).eq('id',id);
-    if(error)throw error;
-    audit('booking.status','booking',id,b.customerName||'Termin',`Durum: ${statusText(oldStatus)} → ${statusText(status)} · Not: ${note}`);
-    save();closeModal();await syncOnlineCalendar();render();
-  }catch(e){alert(`Termin durumu güncellenemedi: ${e.message||e}`);}
-}
-
-async function deleteBooking(id){
-  const b=db.bookings.find(x=>x.id===id);
-  if(!b)return;
-  if(db.user.role!=='admin'&&b.employee!==db.user.u)return alert('Bu termini silemezsin.');
-  if(!confirm('Bu termini silmek istediğine emin misin?\n\nTermin “Silinenler” alanına taşınacak ve Admin tarafından geri getirilebilecek.'))return;
-  try{
-    if(db.user.role==='admin'){
-      const deletedData=JSON.parse(JSON.stringify({...b,deletedAt:new Date().toISOString(),deletedBy:db.user.u,deletedByName:db.user.name,deletedReason:'Manuel olarak silindi'}));
-      const ins=await dkSupabase.from('deleted_appointments').insert({original_appointment_id:b.id,deleted_by:db.user.authId,delete_reason:'Manuel olarak silindi',appointment_data:deletedData});
-      if(ins.error)throw ins.error;
-    }
-    const {error}=await dkSupabase.from('appointments').delete().eq('id',id);
-    if(error)throw error;
-    if(!Array.isArray(db.deletedBookings))db.deletedBookings=[];
-    if(db.user.role==='admin')db.deletedBookings.push({...b,deletedAt:new Date().toISOString(),deletedBy:db.user.u,deletedByName:db.user.name,deletedReason:'Manuel olarak silindi'});
-    audit('booking.deleted','booking',b.id,b.customerName||'Termin',`Termin silinenler alanına taşındı: ${b.routeDate||''} · ${b.routeTime||''} · ${b.routeCampaign||''}`);
-    save();closeModal();await syncOnlineCalendar();render();
-  }catch(e){alert(`Termin silinemedi: ${e.message||e}`);}
-}
-
-async function deleteRoute(id){
-  if(db.user?.role!=='admin')return;
-  const slot=db.slots.find(s=>s.id===id);
-  const b=slot?booking(slot):null;
-  if(b)return alert('Bu rotada termin var. Önce termini kontrol/iptal etmelisin.');
-  if(!slot)return;
-  if(!confirm('Bu rotayı tamamen silmek istediğine emin misin?'))return;
-  try{
-    const {error}=await dkSupabase.from('routes').delete().eq('id',id);
-    if(error)throw error;
-    audit('route.deleted','route',slot.id,`${slot.campaign} · ${slot.time}`,`Rota silindi: ${fmt(slot.date)} · ${slot.time} · ${slot.campaign}`);
-    await syncOnlineCalendar();save();render();
-  }catch(e){alert(`Rota silinemedi: ${e.message||e}`);}
-}
-
-async function dropOnCell(e,targetSlotId){
-  e.preventDefault();e.stopPropagation();didDrag=true;
-  if(!draggingBookingId)return;
-  const b=db.bookings.find(x=>x.id===draggingBookingId);
-  if(!b)return;
-  const target=targetSlotId?db.slots.find(s=>s.id===targetSlotId):null;
-  if(!target){alert('Önce bu saate aynı kampanya için bir rota açılmalı.');dragEnd();return;}
-  const oldSlot=db.slots.find(s=>s.id===b.slotId);
-  if(target.campaign!==oldSlot?.campaign){alert('Termin sadece aynı kampanya sütununda başka bir saate taşınabilir.');dragEnd();return;}
-  if(booking(target)){alert('Bu rotada zaten termin var.');dragEnd();return;}
-  const parts=dkTimeRangeParts(target.time);
-  try{
-    const {error}=await dkSupabase.from('appointments').update({route_id:target.id,appointment_date:target.date,time_start:parts.start,time_end:parts.end,campaign:target.campaign,campaign_color:campObj(target.campaign)[1]}).eq('id',b.id);
-    if(error)throw error;
-    const oldDate=oldSlot?.date||b.routeDate,oldTime=oldSlot?.time||b.routeTime;
-    audit('booking.moved','booking',b.id,b.customerName||'Termin',`Termin taşındı: ${oldDate||''} ${oldTime||''} → ${target.date} ${target.time}`);
-    dragEnd();await syncOnlineCalendar();render();
-  }catch(err){alert(`Termin taşınamadı: ${err.message||err}`);dragEnd();}
-}
-
-async function bootOnlineAuth(){
-  try{
-    db.user=null;
-    save();
-
-    const current=await dkSupabase.auth.getSession();
-    if(current.error)throw current.error;
-
-    let session=current.data.session||null;
-    if(!session?.user){
-      const refreshed=await dkSupabase.auth.refreshSession();
-      if(!refreshed.error)session=refreshed.data.session||null;
-    }
-
-    if(!session?.user){
-      login();
-      return;
-    }
-
-    dkAuthSession=session;
-
-    const {data:profileData,error:profileErr}=await dkSupabase.rpc('get_my_profile');
-    const profile=Array.isArray(profileData)?profileData[0]:profileData;
-
-    if(profileErr||!profile||profile.is_active!==true){
-      dkAuthSession=null;
-      await dkSupabase.auth.signOut();
-      db.user=null;
-      save();
-      login();
-      return;
-    }
-
-    const local=(db.employees||[]).find(e=>e.u===profile.username)||{};
-    db.user={...local,u:profile.username,name:profile.full_name,role:profile.role,authId:profile.id,email:profile.email||session.user.email||''};
-    if(!Array.isArray(db.employees))db.employees=[];
-    const idx=db.employees.findIndex(e=>e.u===profile.username);
-    const merged={...local,u:profile.username,name:profile.full_name,role:profile.role,authId:profile.id,email:profile.email||session.user.email||''};
-    if(idx>=0)db.employees[idx]={...db.employees[idx],...merged};
-    else db.employees.push(merged);
-    save();
-    await syncOnlineCalendar();
-    await syncOnlineCommunication();
-    await syncOnlineWorkSchedule();
-   startOnlineRealtime();
-    render();
-    if(db.user.role!=='admin'){
-      setTimeout(updateAgentOwnReport,1000);
-     setTimeout(()=>showUnreadAnnouncements(true),700);
-      setInterval(()=>{ if(db.user && db.user.role!=='admin') showUnreadAnnouncements(false); },5000);
-    }
-  }catch(e){
-    console.error(e);
-    dkAuthSession=null;
-    db.user=null;
-    save();
-    login();
-  }
-}
-
-
-dkSupabase.auth.onAuthStateChange((_event, session)=>{
-  if(session)dkAuthSession=session;
-  if(_event==='SIGNED_OUT'){dkAuthSession=null;db.user=null;save();login();}
-});
-
-bootOnlineAuth();
+render();
 </script>
 </body>
 </html>
