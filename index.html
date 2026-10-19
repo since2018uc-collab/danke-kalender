@@ -1743,6 +1743,8 @@ async function markMessagesRead(otherU){const other=(db.employees||[]).find(e=>e
    ========================================================= */
 let dkOnlineChannel=null;
 let dkOnlineSyncBusy=false;
+let dkOnlineSyncQueued=false;
+let dkOnlineFallbackTimer=null;
 let dkOnlineReady=false;
 let dkOverviewBookings={};
 
@@ -1820,7 +1822,8 @@ function dkAppointmentToLocal(a,profilesById){
 }
 
 async function syncOnlineCalendar({renderAfter=false}={}){
-  if(!db.user||dkOnlineSyncBusy)return;
+  if(!db.user)return;
+  if(dkOnlineSyncBusy){dkOnlineSyncQueued=true;return;}
   dkOnlineSyncBusy=true;
   try{
     const [routesRes, apptRes, profilesRes, overviewRes] = await Promise.all([
@@ -1862,12 +1865,15 @@ async function syncOnlineCalendar({renderAfter=false}={}){
     dkOnlineReady=false;
   }finally{
     dkOnlineSyncBusy=false;
+    if(dkOnlineSyncQueued){dkOnlineSyncQueued=false;syncOnlineCalendar({renderAfter:true});}
   }
 }
 function startOnlineRealtime(){
+  if(dkOnlineFallbackTimer){clearInterval(dkOnlineFallbackTimer);dkOnlineFallbackTimer=null;}
   if(dkOnlineChannel){try{dkSupabase.removeChannel(dkOnlineChannel);}catch(e){}}
   if(dkCommunicationChannel){try{dkSupabase.removeChannel(dkCommunicationChannel);}catch(e){}}
   if(!db.user?.authId)return;
+  dkOnlineFallbackTimer=setInterval(()=>{if(db.user?.authId && !document.hidden && !dkOnlineSyncBusy)syncOnlineCalendar({renderAfter:true});},60000);
   dkOnlineChannel=dkSupabase.channel(`dk-calendar-${db.user.authId}`)
     .on('postgres_changes',{event:'*',schema:'public',table:'routes'},()=>syncOnlineCalendar({renderAfter:true}))
     .on('postgres_changes',{event:'*',schema:'public',table:'appointments'},()=>syncOnlineCalendar({renderAfter:true}))
