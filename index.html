@@ -1734,9 +1734,6 @@ async function markMessagesRead(otherU){const other=(db.employees||[]).find(e=>e
    ========================================================= */
 let dkOnlineChannel=null;
 let dkOnlineSyncBusy=false;
-let dkOnlineSyncPending=false;
-let dkOnlineSyncPendingRender=false;
-let dkOnlineRefreshTimer=null;
 let dkOnlineReady=false;
 let dkOverviewBookings={};
 
@@ -1814,8 +1811,7 @@ function dkAppointmentToLocal(a,profilesById){
 }
 
 async function syncOnlineCalendar({renderAfter=false}={}){
-  if(!db.user)return;
-  if(dkOnlineSyncBusy){dkOnlineSyncPending=true;dkOnlineSyncPendingRender ||= renderAfter;return;}
+  if(!db.user||dkOnlineSyncBusy)return;
   dkOnlineSyncBusy=true;
   try{
     const [routesRes, apptRes, profilesRes, overviewRes] = await Promise.all([
@@ -1857,12 +1853,6 @@ async function syncOnlineCalendar({renderAfter=false}={}){
     dkOnlineReady=false;
   }finally{
     dkOnlineSyncBusy=false;
-    if(dkOnlineSyncPending){
-      const needsRender=dkOnlineSyncPendingRender;
-      dkOnlineSyncPending=false;
-      dkOnlineSyncPendingRender=false;
-      queueMicrotask(()=>syncOnlineCalendar({renderAfter:needsRender}));
-    }
   }
 }
 function startOnlineRealtime(){
@@ -1880,10 +1870,7 @@ function startOnlineRealtime(){
   await syncOnlineWorkSchedule();
   render();
 })
-   .subscribe(status=>{
-     if(status==='SUBSCRIBED')syncOnlineCalendar({renderAfter:true});
-     if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')console.warn('Danke Kalender realtime connection:',status);
-   });
+   .subscribe();
   dkCommunicationChannel=dkSupabase.channel(`dk-communication-${db.user.authId}`)
     .on('postgres_changes',{event:'*',schema:'public',table:'messages'},async()=>{await syncOnlineCommunication({renderAfter:false});checkForNewNotifications();})
     .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},async()=>{await syncOnlineCommunication({renderAfter:true});checkForNewNotifications();})
@@ -2129,10 +2116,6 @@ async function bootOnlineAuth(){
     await syncOnlineCommunication();
     await syncOnlineWorkSchedule();
    startOnlineRealtime();
-    if(dkOnlineRefreshTimer)clearInterval(dkOnlineRefreshTimer);
-    dkOnlineRefreshTimer=setInterval(()=>{
-      if(db.user?.authId && !document.hidden)syncOnlineCalendar({renderAfter:true});
-    },15000);
     render();
     if(db.user.role!=='admin'){
       setTimeout(updateAgentOwnReport,1000);
