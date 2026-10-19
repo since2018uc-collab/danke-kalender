@@ -619,9 +619,12 @@ async function doLogin(){
   }catch(e){
     console.error(e);
     if(st)st.textContent=e?.message||'Giriş yapılamadı.';
+    dkLoginFailureSignOut=true;
     try{await dkSupabase.auth.signOut();}catch(_){}
+    finally{dkLoginFailureSignOut=false;}
   }finally{
-    if(btn){btn.disabled=false;btn.textContent='Giriş Yap';}
+    const liveBtn=document.getElementById('loginBtn');
+    if(liveBtn){liveBtn.disabled=false;liveBtn.textContent='Giriş Yap';}
   }
 }
 async function logout(){try{await dkSupabase.auth.signOut();}catch(e){}dkAuthSession=null;db.user=null;save();login()}
@@ -2132,7 +2135,9 @@ async function bootOnlineAuth(){
 }
 
 
+let dkLoginFailureSignOut=false;
 dkSupabase.auth.onAuthStateChange((_event, session)=>{
+  if(_event==='SIGNED_OUT' && dkLoginFailureSignOut)return;
   if(session)dkAuthSession=session;
   if(_event==='SIGNED_OUT'){dkAuthSession=null;db.user=null;save();login();}
 });
