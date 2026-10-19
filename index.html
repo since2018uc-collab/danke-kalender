@@ -529,7 +529,7 @@ window.addEventListener('storage',function(ev){
 
 function startNotificationMonitor(){
   if(dkNotificationPollTimer)clearInterval(dkNotificationPollTimer);
-  dkNotificationPollTimer=setInterval(checkForNewNotifications,2500);
+  dkNotificationPollTimer=setInterval(()=>{if(db.user && !document.hidden)checkForNewNotifications();},30000);
 }
 primeNotificationSoundState();
 startNotificationMonitor();
