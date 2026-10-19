@@ -1873,7 +1873,7 @@ function startOnlineRealtime(){
   if(dkOnlineChannel){try{dkSupabase.removeChannel(dkOnlineChannel);}catch(e){}}
   if(dkCommunicationChannel){try{dkSupabase.removeChannel(dkCommunicationChannel);}catch(e){}}
   if(!db.user?.authId)return;
-  dkOnlineFallbackTimer=setInterval(()=>{if(db.user?.authId && !document.hidden && !dkOnlineSyncBusy)syncOnlineCalendar({renderAfter:true});},20000);
+  dkOnlineFallbackTimer=setInterval(()=>{if(db.user?.authId && !document.hidden && !dkOnlineSyncBusy)syncOnlineCalendar({renderAfter:true});},60000);
   dkOnlineChannel=dkSupabase.channel(`dk-calendar-${db.user.authId}`)
     .on('postgres_changes',{event:'*',schema:'public',table:'routes'},()=>syncOnlineCalendar({renderAfter:true}))
     .on('postgres_changes',{event:'*',schema:'public',table:'appointments'},()=>syncOnlineCalendar({renderAfter:true}))
