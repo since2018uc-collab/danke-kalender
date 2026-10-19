@@ -618,10 +618,16 @@ async function doLogin(){
     render();
   }catch(e){
     console.error(e);
-    if(st)st.textContent=e?.message||'Giriş yapılamadı.';
-    dkLoginFailureSignOut=true;
-    try{await dkSupabase.auth.signOut();}catch(_){}
-    finally{dkLoginFailureSignOut=false;}
+    const loginError=e?.message||'Giriş yapılamadı.';
+    if(st){st.textContent=loginError;st.style.color='#b42318';}
+    // A failed sign-in has no valid new session; avoid a SIGNED_OUT event rebuilding the login form.
+    if(dkAuthSession){
+      dkLoginFailureSignOut=true;
+      try{await dkSupabase.auth.signOut();}catch(_){}
+      finally{dkAuthSession=null;dkLoginFailureSignOut=false;}
+    }
+    const visibleStatus=document.getElementById('loginStatus');
+    if(visibleStatus){visibleStatus.textContent=loginError;visibleStatus.style.color='#b42318';}
   }finally{
     const liveBtn=document.getElementById('loginBtn');
     if(liveBtn){liveBtn.disabled=false;liveBtn.textContent='Giriş Yap';}
