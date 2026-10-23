@@ -1992,8 +1992,16 @@ async function saveBooking(slotId,bid){
       const before=existing?JSON.parse(JSON.stringify(existing)):null;
       const {data,error}=await dkSupabase.from('appointments').update(payload).eq('id',bid).select('*').single();
       if(error)throw error;
+      if(!data||String(data.id)!==String(bid))throw new Error('Termin güncellemesi doğrulanamadı.');
+      // Re-read from the server; do not report success based on a local-only change.
+      const verified=await dkSupabase.from('appointments').select('*').eq('id',bid).single();
+      if(verified.error)throw verified.error;
+      if(!verified.data)throw new Error('Güncellenen termin veritabanında bulunamadı.');
+      const changedColumns=['kunde_name','vorname','alter','strasse','plz','ort','festnetz','mobil','entscheidungstraeger','gesprochen_mit','baujahr','teilnehmer','heizart','frei_reihenhaus','verbrauch','vorlauftemperatur','rohrsystem','beheizte_wohnflaeche'];
+      const unsaved=changedColumns.filter(k=>String(verified.data[k]??'')!==String(payload[k]??''));
+      if(unsaved.length)throw new Error('Değişiklikler veritabanında doğrulanamadı: '+unsaved.join(', '));
       const profilesRes=await dkSupabase.from('profiles').select('id,full_name,username').eq('id',data.agent_id).single();
-      const mapped=dkAppointmentToLocal(data,new Map(profilesRes.data?[[profilesRes.data.id,profilesRes.data]]:[]));
+      const mapped=dkAppointmentToLocal(verified.data,new Map(profilesRes.data?[[profilesRes.data.id,profilesRes.data]]:[]));
       const idx=db.bookings.findIndex(b=>b.id===bid);
       if(idx>=0)db.bookings[idx]=mapped;else db.bookings.push(mapped);
       if(before){const changed=bookingChangedFields(before,mapped);if(changed.length)audit('booking.updated','booking',mapped.id,mapped.customerName||before.customerName,`Değiştirilen alanlar: ${changed.join(', ')}`);}
